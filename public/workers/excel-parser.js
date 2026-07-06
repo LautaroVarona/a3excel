@@ -6,7 +6,27 @@ const MAX_ROWS = 50_000;
 const EXCEL_HEADER_ROW_INDEX = 7;
 
 const A3_YMANT_CONTROL_CELL = "B8";
+const CONTROL_CODE_ROW_INDEX = 7;
 const CONTROL_CODE_PATTERN = /^077\d+/;
+const CONTROL_CODE_LOOSE_PATTERN = /^077\d+.*\bCT\s+1/i;
+
+function normalizeAccents(value) {
+  return value.normalize("NFD").replace(/\p{M}/gu, "");
+}
+
+function isYmantControlCode(value) {
+  if (!value) return false;
+  const text = value.trim();
+  if (CONTROL_CODE_PATTERN.test(text)) return true;
+  if (CONTROL_CODE_LOOSE_PATTERN.test(text)) return true;
+  return false;
+}
+
+function isYmantHeaderLabel(value) {
+  if (!value) return false;
+  const text = normalizeAccents(value.trim());
+  return /^codigo\b/i.test(text) || /^cod\b\.?/i.test(text);
+}
 
 function readCellDisplay(worksheet, address) {
   const cell = worksheet[address];
@@ -30,16 +50,37 @@ function readCellAt(worksheet, colIndex, rowIndex) {
 }
 
 function detectYmantControlCode(worksheet) {
-  const value = readCellDisplay(worksheet, A3_YMANT_CONTROL_CELL);
-  if (!value || !CONTROL_CODE_PATTERN.test(value.trim())) return null;
-  return value;
+  const preferred = readCellDisplay(worksheet, A3_YMANT_CONTROL_CELL);
+  if (isYmantControlCode(preferred)) {
+    return {
+      controlCode: preferred.trim(),
+      controlCodeColIndex: 1,
+      controlCodeRowIndex: CONTROL_CODE_ROW_INDEX,
+    };
+  }
+
+  for (let rowIndex = CONTROL_CODE_ROW_INDEX - 1; rowIndex <= CONTROL_CODE_ROW_INDEX + 1; rowIndex++) {
+    for (let colIndex = 0; colIndex <= 4; colIndex++) {
+      const value = readCellAt(worksheet, colIndex, rowIndex);
+      if (!isYmantControlCode(value)) continue;
+      return {
+        controlCode: value.trim(),
+        controlCodeColIndex: colIndex,
+        controlCodeRowIndex: rowIndex,
+      };
+    }
+  }
+
+  return null;
 }
 
 function findYmantHeaderRow(worksheet) {
-  for (let rowIndex = 7; rowIndex <= 30; rowIndex++) {
-    const label = readCellAt(worksheet, 1, rowIndex);
-    if (label && /c[oó]digo/i.test(label.trim())) {
-      return rowIndex;
+  for (let rowIndex = CONTROL_CODE_ROW_INDEX; rowIndex <= 30; rowIndex++) {
+    for (let colIndex = 0; colIndex <= 5; colIndex++) {
+      const label = readCellAt(worksheet, colIndex, rowIndex);
+      if (isYmantHeaderLabel(label)) {
+        return rowIndex;
+      }
     }
   }
   return null;
@@ -57,8 +98,8 @@ function parseMaxCol(ref) {
 }
 
 function detectYmantLayout(worksheet) {
-  const controlCode = detectYmantControlCode(worksheet);
-  if (!controlCode) return null;
+  const control = detectYmantControlCode(worksheet);
+  if (!control) return null;
 
   const headerRowIndex = findYmantHeaderRow(worksheet);
   if (headerRowIndex === null) return null;
@@ -66,11 +107,11 @@ function detectYmantLayout(worksheet) {
   const maxCol = worksheet["!ref"] ? parseMaxCol(worksheet["!ref"]) : 120;
   const columnIndices = {};
 
-  for (let colIndex = 1; colIndex <= maxCol; colIndex++) {
+  for (let colIndex = 0; colIndex <= maxCol; colIndex++) {
     const header = readCellAt(worksheet, colIndex, headerRowIndex);
     if (!header) continue;
     const key = header.trim();
-    if (!key) continue;
+    if (!key || isYmantControlCode(key)) continue;
     columnIndices[key] = colIndex;
   }
 
@@ -79,7 +120,9 @@ function detectYmantLayout(worksheet) {
 
   return {
     kind: "ymant",
-    controlCode,
+    controlCode: control.controlCode,
+    controlCodeColIndex: control.controlCodeColIndex,
+    controlCodeRowIndex: control.controlCodeRowIndex,
     headerRow1Based: headerRowIndex + 1,
     dataStartRow1Based: headerRowIndex + 2,
     columnIndices,

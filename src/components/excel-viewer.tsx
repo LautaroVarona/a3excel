@@ -330,14 +330,19 @@ export function ExcelViewer() {
         <div className="rounded-sm border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
           {parsedData.layout?.kind === "ymant" ? (
             <>
-              Editá los importes en la tabla y exportá directo a A3.{" "}
-              <strong>No abras el .XLS en Excel</strong> — Excel destruye el
-              formato interno que A3NOM necesita.
+              Descargá el <strong>.xlsx para Excel</strong>, editá ahí, subí el
+              archivo editado y generá el <strong>.XLS para A3</strong>.{" "}
+              <strong>No importes en A3 un .XLS guardado desde Excel</strong> —
+              destruye el formato interno que A3NOM necesita.
             </>
           ) : (
             <>
-              Este archivo no se reconoció como export YMANT de A3. Para
-              importar de vuelta en A3NOM usá el .XLS original (~245 KB).
+              Este archivo no se reconoció como export YMANT de A3
+              {fileName?.toLowerCase().endsWith(".xls") &&
+              sourceBuffer &&
+              sourceBuffer.byteLength >= 80_000
+                ? " (aunque el tamaño parece correcto). Recargá la página, reiniciá el servidor de desarrollo e importá de nuevo el .XLS original."
+                : ". Para importar de vuelta en A3NOM usá el .XLS original (~245 KB)."}
             </>
           )}
         </div>
@@ -349,6 +354,7 @@ export function ExcelViewer() {
             sourceFileName={fileName}
             sourceBuffer={sourceBuffer}
             filePassword={filePassword}
+            onDataUpdated={setParsedData}
             onUploadAnother={() => fileInputRef.current?.click()}
           />
         )}

@@ -28,6 +28,10 @@ export interface ExcelExportMetadata {
 export interface A3YmantLayout {
   kind: "ymant";
   controlCode: string;
+  /** Columna 0-based del código de control (A3 usa A8 o B8 según export). */
+  controlCodeColIndex?: number;
+  /** Fila 0-based del código de control (fila 8 en Excel = 7). */
+  controlCodeRowIndex?: number;
   headerRow1Based: number;
   dataStartRow1Based: number;
   /** Etiqueta de columna → índice de columna 0-based en Excel. */

@@ -68,7 +68,7 @@ async function exportYmantViaServer(
   downloadBuffer(output, buildEditableExportName(sourceFileName));
 }
 
-export async function exportParsedExcelToFile(
+export async function exportForA3Import(
   data: ParsedExcel,
   options?: {
     sourceFileName?: string | null;
@@ -206,4 +206,16 @@ export async function exportParsedExcelToFile(
     bookType: "xlsx",
     compression: true,
   });
+}
+
+/** @deprecated Usar exportForA3Import o exportForExcelEditing */
+export async function exportParsedExcelToFile(
+  data: ParsedExcel,
+  options?: {
+    sourceFileName?: string | null;
+    sourceBuffer?: ArrayBuffer | null;
+    password?: string;
+  }
+): Promise<void> {
+  return exportForA3Import(data, options);
 }
