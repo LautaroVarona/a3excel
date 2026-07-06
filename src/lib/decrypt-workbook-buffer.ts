@@ -46,13 +46,16 @@ function decryptXls97WithPassword(
   if (!workbookEntry) return null;
 
   let workbookContent = workbookEntry.content;
+  let workbookBlob: Buffer;
   if (!Buffer.isBuffer(workbookContent)) {
-    workbookContent = Buffer.from(workbookContent);
-    CFB.utils.prep_blob(workbookContent, 0);
+    workbookBlob = Buffer.from(workbookContent);
+    CFB.utils.prep_blob(workbookBlob, 0);
+  } else {
+    workbookBlob = workbookContent;
   }
 
   try {
-    return xls97.decrypt(cfb, workbookContent, password, input);
+    return xls97.decrypt(cfb, workbookBlob, password, input);
   } catch {
     return null;
   }
