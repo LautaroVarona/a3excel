@@ -32,8 +32,22 @@ function runPowerShell(
       stderr += chunk.toString();
     });
 
-    child.on("error", (error) => reject(error));
+    const timeout = setTimeout(() => {
+      child.kill();
+      reject(
+        new Error(
+          "Excel tardó demasiado en abrir el archivo. Cerrá instancias de Excel e intentá de nuevo."
+        )
+      );
+    }, 90_000);
+
+    child.on("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+
     child.on("close", (code) => {
+      clearTimeout(timeout);
       if (code === 0) {
         resolve();
         return;

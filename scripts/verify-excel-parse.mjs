@@ -7,6 +7,8 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as XLSX from "xlsx";
 
+const EXCEL_HEADER_ROW_INDEX = 5;
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturePath = path.join(__dirname, "fixtures", "sample.xlsx");
 
@@ -23,6 +25,7 @@ function parseBuffer(buffer) {
 
   const worksheet = workbook.Sheets[sheetName];
   const rawRows = XLSX.utils.sheet_to_json(worksheet, {
+    range: EXCEL_HEADER_ROW_INDEX,
     defval: null,
     raw: false,
   });
@@ -48,22 +51,25 @@ function parseBuffer(buffer) {
   };
 }
 
-// Crear fixture si no existe
+// Crear o actualizar fixture con metadatos en filas 1-5 y encabezados en fila 6
 const fixturesDir = path.dirname(fixturePath);
 if (!fs.existsSync(fixturesDir)) fs.mkdirSync(fixturesDir, { recursive: true });
 
-if (!fs.existsSync(fixturePath)) {
-  const ws = XLSX.utils.aoa_to_sheet([
-    ["Nombre", "Edad", "Activo"],
-    ["Ana", 30, true],
-    ["Luis", 25, false],
-    ["María", 35, true],
-  ]);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Datos");
-  XLSX.writeFile(wb, fixturePath);
-  console.log("Fixture creado:", fixturePath);
-}
+const ws = XLSX.utils.aoa_to_sheet([
+  ["Metadato 1"],
+  ["Metadato 2"],
+  ["Metadato 3"],
+  ["Metadato 4"],
+  ["Metadato 5"],
+  ["Nombre", "Edad", "Activo"],
+  ["Ana", 30, true],
+  ["Luis", 25, false],
+  ["María", 35, true],
+]);
+const wb = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(wb, ws, "Datos");
+XLSX.writeFile(wb, fixturePath);
+console.log("Fixture actualizado:", fixturePath);
 
 const buffer = fs.readFileSync(fixturePath);
 const start = Date.now();

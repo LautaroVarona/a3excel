@@ -2,6 +2,8 @@
 
 const ROW_CHUNK_SIZE = 500;
 const MAX_ROWS = 50_000;
+/** Índice 0-based de la fila de encabezados (fila 6 en Excel). */
+const EXCEL_HEADER_ROW_INDEX = 5;
 
 function normalizeCellValue(value) {
   if (value === null || value === undefined || value === "") return null;
@@ -126,6 +128,7 @@ async function parseBuffer(buffer, jobId, startTime, password) {
 
   const worksheet = workbook.Sheets[sheetName];
   const rawRows = XLSX.utils.sheet_to_json(worksheet, {
+    range: EXCEL_HEADER_ROW_INDEX,
     defval: null,
     raw: false,
     blankrows: false,

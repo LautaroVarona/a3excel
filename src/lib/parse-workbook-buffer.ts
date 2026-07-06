@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 
+import { EXCEL_HEADER_ROW_INDEX } from "./excel-parse-constants";
 import type { ExcelRow, ParsedExcel } from "./excel-types";
 
 const MAX_ROWS = 50_000;
@@ -26,6 +27,7 @@ export function parseWorkbookBuffer(buffer: Buffer | ArrayBuffer): ParsedExcel {
 
   const worksheet = workbook.Sheets[sheetName];
   const rawRows = XLSX.utils.sheet_to_json(worksheet, {
+    range: EXCEL_HEADER_ROW_INDEX,
     defval: null,
     raw: false,
     blankrows: false,
