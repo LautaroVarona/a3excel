@@ -113,6 +113,7 @@ export function ExcelDataTable({ data, onUploadAnother }: ExcelDataTableProps) {
         style={{ width: "100%", height: "min(72vh, 900px)" }}
       >
         <AgGridReact
+          theme="legacy"
           rowData={data.rows}
           columnDefs={columnDefs}
           defaultColDef={defaultColDef}

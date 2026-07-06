@@ -4,6 +4,7 @@ import {
   canUseExcelCom,
   convertEncryptedWorkbookViaExcel,
 } from "@/lib/excel-com";
+import { tryDecryptWorkbookBuffer } from "@/lib/decrypt-workbook-buffer";
 import { parseWorkbookBuffer } from "@/lib/parse-workbook-buffer";
 import { MAX_FILE_SIZE_BYTES } from "@/lib/excel-types";
 
@@ -26,51 +27,18 @@ function isEncryptionError(message: string): boolean {
   return (
     text.includes("password") ||
     text.includes("encrypt") ||
+    text.includes("protegido") ||
+    text.includes("cifrado") ||
     text.includes("file is password")
   );
 }
 
-/** Clave XOR habitual en exports .xls de a3ERP (protección de escritura). */
-const A3ERP_XOR_PASSWORD = " ";
-
-function buildDecryptPasswords(userPassword?: string): string[] {
-  const seen = new Set<string>();
-  const candidates: string[] = [];
-  const add = (value: string) => {
-    if (seen.has(value)) return;
-    seen.add(value);
-    candidates.push(value);
-  };
-  if (userPassword) add(userPassword);
-  add(A3ERP_XOR_PASSWORD);
-  return candidates;
-}
-
-async function tryOfficeCryptoDecrypt(
-  input: Buffer,
-  passwords: string[]
-): Promise<Buffer | null> {
-  const { decrypt } = await import("officecrypto-tool");
-  for (const candidate of passwords) {
-    try {
-      const output = await decrypt(input, { password: candidate });
-      return Buffer.from(output);
-    } catch {
-      // Probamos la siguiente clave.
-    }
-  }
-  return null;
-}
-
-async function parseEncryptedBuffer(
+async function resolveReadableBuffer(
   input: Buffer,
   extension: ".xls" | ".xlsx",
   password?: string
 ): Promise<Buffer> {
-  const decrypted = await tryOfficeCryptoDecrypt(
-    input,
-    buildDecryptPasswords(password)
-  );
+  const decrypted = await tryDecryptWorkbookBuffer(input, password);
   if (decrypted) {
     return decrypted;
   }
@@ -138,8 +106,8 @@ export async function POST(request: Request) {
         throw error;
       }
 
-      const decrypted = await parseEncryptedBuffer(input, extension, password);
-      return NextResponse.json(parseWorkbookBuffer(decrypted, password));
+      const readable = await resolveReadableBuffer(input, extension, password);
+      return NextResponse.json(parseWorkbookBuffer(readable, password));
     }
   } catch (error) {
     const message =
