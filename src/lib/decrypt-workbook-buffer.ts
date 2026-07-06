@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import * as CFB from "cfb";
 import officeCrypto from "officecrypto-tool";
@@ -18,31 +19,25 @@ type Xls97Module = {
   ) => Buffer;
 };
 
-const requireFromRoot = createRequire(
-  path.join(process.cwd(), "package.json")
-);
-
 function loadXls97Module(): Xls97Module | null {
-  const candidates = [
-    "officecrypto-tool/src/util/xls97",
-    "officecrypto-tool/src/util/xls97.js",
+  const modulePaths = [
+    path.join(process.cwd(), "src/lib/vendor/officecrypto/xls97.js"),
+    path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "vendor/officecrypto/xls97.js"
+    ),
   ];
 
-  for (const moduleId of candidates) {
+  for (const modulePath of modulePaths) {
     try {
-      return requireFromRoot(moduleId) as Xls97Module;
+      const require = createRequire(modulePath);
+      return require("./xls97.js") as Xls97Module;
     } catch {
       // Probamos la siguiente ruta.
     }
   }
 
-  try {
-    const packageEntry = requireFromRoot.resolve("officecrypto-tool/package.json");
-    const packageRequire = createRequire(packageEntry);
-    return packageRequire("./src/util/xls97") as Xls97Module;
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 const xls97Module = loadXls97Module();
@@ -188,7 +183,7 @@ export function getDecryptDiagnostics(input: Buffer): DecryptDiagnostics {
   return {
     encrypted: officeCrypto.isEncrypted(input),
     oleXls: isOleXls(input),
-    xls97ModuleLoaded: xls97Module !== null,
+    xls97ModuleLoaded: Boolean(xls97Module?.decrypt),
     candidatesTried: buildDecryptPasswordCandidates().length,
   };
 }
