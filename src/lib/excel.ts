@@ -1,39 +1,15 @@
-export type ParsePhase =
-  | "reading"
-  | "parsing"
-  | "converting"
-  | "indexing"
-  | "complete";
+import type { ParseProgress, ParsedExcel } from "./excel-types";
+import {
+  MAX_FILE_SIZE_BYTES,
+  PARSE_TIMEOUT_MS,
+  PHASE_LABELS,
+} from "./excel-types";
 
-export interface ParseProgress {
-  phase: ParsePhase;
-  message: string;
-  percent: number;
-  processed: number;
-  total: number;
-  elapsedMs: number;
-  estimatedRemainingMs: number | null;
-}
+const SERVER_PARSE_TIMEOUT_MS = 120_000;
 
-export type ExcelRow = Record<string, string | number | boolean | null>;
+export type { ExcelRow, ParsePhase, ParseProgress, ParsedExcel } from "./excel-types";
+export { MAX_FILE_SIZE_BYTES, PARSE_TIMEOUT_MS, PHASE_LABELS };
 
-export interface ParsedExcel {
-  sheetName: string;
-  columns: string[];
-  rows: ExcelRow[];
-  totalRows: number;
-}
-
-const PHASE_LABELS: Record<ParsePhase, string> = {
-  reading: "Lectura del archivo",
-  parsing: "Análisis del libro Excel",
-  converting: "Conversión de filas",
-  indexing: "Indexación de columnas",
-  complete: "Completado",
-};
-
-export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
-export const PARSE_TIMEOUT_MS = 60_000;
 const VALID_EXTENSIONS = [".xls", ".xlsx"];
 
 function formatBytes(bytes: number): string {
@@ -68,6 +44,88 @@ function emitProgress(
       elapsedMs
     ),
   });
+}
+
+export function flushUI(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => resolve());
+    });
+  });
+}
+
+function isEncryptionErrorMessage(message: string): boolean {
+  const text = message.toLowerCase();
+  return (
+    text.includes("protección") ||
+    text.includes("cifrado") ||
+    text.includes("password") ||
+    text.includes("encrypt")
+  );
+}
+
+async function parseViaLocalServer(
+  file: File,
+  onProgress: (p: ParseProgress) => void,
+  startTime: number,
+  password?: string
+): Promise<ParsedExcel> {
+  emitProgress(onProgress, startTime, {
+    phase: "parsing",
+    message:
+      "El archivo está protegido — abriendo con Excel instalado en esta PC…",
+    percent: 35,
+    processed: 0,
+    total: 1,
+  });
+
+  const formData = new FormData();
+  formData.append("file", file);
+  if (password) {
+    formData.append("password", password);
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(),
+    SERVER_PARSE_TIMEOUT_MS
+  );
+
+  try {
+    const response = await fetch("/api/parse-excel", {
+      method: "POST",
+      body: formData,
+      signal: controller.signal,
+    });
+
+    const payload = (await response.json()) as ParsedExcel & { error?: string };
+
+    if (!response.ok) {
+      throw new Error(
+        payload.error ||
+          "No se pudo abrir el archivo con Excel en esta computadora."
+      );
+    }
+
+    emitProgress(onProgress, startTime, {
+      phase: "converting",
+      message: `Listo — ${payload.totalRows.toLocaleString("es-ES")} filas extraídas`,
+      percent: 95,
+      processed: payload.totalRows,
+      total: payload.totalRows,
+    });
+
+    return payload;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(
+        "Excel tardó demasiado en abrir el archivo. Probá de nuevo o guardá una copia .xlsx."
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function validateExcelFile(file: File): string | null {
@@ -121,14 +179,12 @@ function readFileWithProgress(
 
     reader.onprogress = (event) => {
       if (!event.lengthComputable) return;
-      const loaded = event.loaded;
-      const total = event.total;
       emitProgress(onProgress, startTime, {
         phase: "reading",
-        message: `Leyendo ${formatBytes(loaded)} de ${formatBytes(total)}…`,
-        percent: Math.round((loaded / total) * 25),
-        processed: loaded,
-        total,
+        message: `Leyendo ${formatBytes(event.loaded)} de ${formatBytes(event.total)}…`,
+        percent: Math.round((event.loaded / event.total) * 25),
+        processed: event.loaded,
+        total: event.total,
       });
     };
 
@@ -149,61 +205,16 @@ function readFileWithProgress(
   });
 }
 
-function parseBufferInWorker(
-  buffer: ArrayBuffer,
-  file: File,
-  onProgress: (progress: ParseProgress) => void,
-  startTime: number
-): Promise<ParsedExcel> {
-  return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL("./excel-worker.ts", import.meta.url));
-
-    const cleanup = () => {
-      worker.terminate();
-    };
-
-    worker.onmessage = (event: MessageEvent) => {
-      const data = event.data as
-        | { type: "progress"; progress: ParseProgress }
-        | { type: "result"; data: ParsedExcel }
-        | { type: "error"; message: string };
-
-      if (data.type === "progress") {
-        onProgress(data.progress);
-        return;
-      }
-
-      cleanup();
-      if (data.type === "result") {
-        resolve(data.data);
-        return;
-      }
-
-      reject(new Error(data.message));
-    };
-
-    worker.onerror = () => {
-      cleanup();
-      reject(
-        new Error(
-          "Error al procesar el archivo. Probá con un archivo .xlsx o uno más simple."
-        )
-      );
-    };
-
-    worker.postMessage({
-      type: "parse",
-      buffer,
-      fileName: file.name,
-      fileSize: file.size,
-      startTime,
-    });
-  });
-}
-
 export async function parseExcelFileWithProgress(
   file: File,
-  onProgress: (progress: ParseProgress) => void
+  onProgress: (progress: ParseProgress) => void,
+  parseInWorker: (
+    buffer: ArrayBuffer,
+    startTime: number,
+    onProgress: (progress: ParseProgress) => void,
+    password?: string
+  ) => Promise<ParsedExcel>,
+  password?: string
 ): Promise<ParsedExcel> {
   const validationError = validateExcelFile(file);
   if (validationError) {
@@ -222,7 +233,19 @@ export async function parseExcelFileWithProgress(
 
   const parseTask = async (): Promise<ParsedExcel> => {
     const buffer = await readFileWithProgress(file, onProgress, startTime);
-    return parseBufferInWorker(buffer, file, onProgress, startTime);
+
+    try {
+      return await parseInWorker(buffer, startTime, onProgress, password);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Error al procesar el archivo.";
+
+      if (typeof window !== "undefined" && isEncryptionErrorMessage(message)) {
+        return parseViaLocalServer(file, onProgress, startTime, password);
+      }
+
+      throw error;
+    }
   };
 
   return withTimeout(
@@ -248,5 +271,3 @@ export function formatDuration(ms: number): string {
   const rem = seconds % 60;
   return rem > 0 ? `~${minutes} min ${rem} s` : `~${minutes} min`;
 }
-
-export { PHASE_LABELS };

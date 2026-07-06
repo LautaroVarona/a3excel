@@ -1,54 +1,23 @@
 "use client";
 
-import {
-  type ColumnDef,
-  type ColumnFiltersState,
-  type PaginationState,
-  type SortingState,
-  flexRender,
-  getCoreRowModel,
-  getFilteredRowModel,
-  getPaginationRowModel,
-  getSortedRowModel,
-  useReactTable,
-} from "@tanstack/react-table";
-import {
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-  FileSpreadsheet,
-  Upload,
-  X,
-} from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { FileSpreadsheet, Upload, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, startTransition } from "react";
+import { flushSync } from "react-dom";
 
+import { ExcelDataTable } from "@/components/excel-data-table";
 import { ProcessingPanel } from "@/components/processing-panel";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useExcelParser } from "@/hooks/use-excel-parser";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  type ExcelRow,
   type ParseProgress,
   type ParsedExcel,
-  formatCellValue,
+  flushUI,
   parseExcelFileWithProgress,
   validateExcelFile,
 } from "@/lib/excel";
 import { cn } from "@/lib/utils";
-
-const PAGE_SIZE_OPTIONS = [25, 50, 100, 250] as const;
 
 const INITIAL_PROGRESS: ParseProgress = {
   phase: "reading",
@@ -61,95 +30,120 @@ const INITIAL_PROGRESS: ParseProgress = {
 };
 
 export function ExcelViewer() {
+  const { engineState, engineError, parseInWorker } = useExcelParser();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [parsedData, setParsedData] = useState<ParsedExcel | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState<ParseProgress>(INITIAL_PROGRESS);
   const [error, setError] = useState<string | null>(null);
-  const [sorting, setSorting] = useState<SortingState>([]);
-  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
-  const [pagination, setPagination] = useState<PaginationState>({
-    pageIndex: 0,
-    pageSize: 50,
-  });
+  const [filePassword, setFilePassword] = useState("");
   const [isDragging, setIsDragging] = useState(false);
 
-  const columns = useMemo<ColumnDef<ExcelRow>[]>(() => {
-    if (!parsedData) return [];
-
-    return parsedData.columns.map((columnId) => ({
-      accessorKey: columnId,
-      header: columnId,
-      cell: ({ getValue }) => formatCellValue(getValue() as ExcelRow[string]),
-      filterFn: "includesString",
-      sortingFn: "alphanumeric",
-    }));
-  }, [parsedData]);
-
-  const table = useReactTable({
-    data: parsedData?.rows ?? [],
-    columns,
-    state: { sorting, columnFilters, pagination },
-    onSortingChange: setSorting,
-    onColumnFiltersChange: setColumnFilters,
-    onPaginationChange: setPagination,
-    getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-  });
-
-  const processFile = useCallback(async (file: File) => {
-    const validationError = validateExcelFile(file);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-
-    setIsProcessing(true);
-    setFileName(file.name);
-    setError(null);
-    setParsedData(null);
-    setProgress(INITIAL_PROGRESS);
-
-    try {
-      const result = await parseExcelFileWithProgress(file, setProgress);
-      setParsedData(result);
-      setSorting([]);
-      setColumnFilters([]);
-      setPagination((prev) => ({ ...prev, pageIndex: 0 }));
-    } catch (err) {
-      setParsedData(null);
-      setFileName(null);
-      setError(
-        err instanceof Error
-          ? err.message
-          : "No se pudo procesar el archivo Excel."
-      );
-    } finally {
-      setIsProcessing(false);
-    }
+  const updateProgress = useCallback((next: ParseProgress) => {
+    setProgress(next);
   }, []);
+
+  useEffect(() => {
+    document.body.style.cursor = isProcessing ? "progress" : "";
+    return () => {
+      document.body.style.cursor = "";
+    };
+  }, [isProcessing]);
+
+  const beginProcessing = useCallback((name: string) => {
+    flushSync(() => {
+      setIsProcessing(true);
+      setFileName(name);
+      setError(null);
+      setParsedData(null);
+      setProgress({
+        ...INITIAL_PROGRESS,
+        message: `Archivo seleccionado: ${name}`,
+      });
+    });
+  }, []);
+
+  const processFile = useCallback(
+    async (file: File) => {
+      if (engineState !== "ready") {
+        setError("El motor de Excel aún se está cargando. Esperá unos segundos.");
+        return;
+      }
+
+      const validationError = validateExcelFile(file);
+      if (validationError) {
+        setError(validationError);
+        return;
+      }
+
+      beginProcessing(file.name);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      try {
+        const result = await parseExcelFileWithProgress(
+          file,
+          updateProgress,
+          parseInWorker,
+          filePassword.trim() || undefined
+        );
+
+        setProgress({
+          phase: "complete",
+          message: `Preparando tabla con ${result.totalRows.toLocaleString("es-ES")} filas…`,
+          percent: 100,
+          processed: result.totalRows,
+          total: result.totalRows,
+          elapsedMs: 0,
+          estimatedRemainingMs: null,
+        });
+
+        await flushUI();
+
+        startTransition(() => {
+          setParsedData(result);
+          setIsProcessing(false);
+        });
+      } catch (err) {
+        setParsedData(null);
+        setFileName(null);
+        setError(
+          err instanceof Error
+            ? err.message
+            : "No se pudo procesar el archivo Excel."
+        );
+        setIsProcessing(false);
+      }
+    },
+    [beginProcessing, engineState, filePassword, parseInWorker, updateProgress]
+  );
+
+  const queueFile = useCallback(
+    (file: File | undefined) => {
+      if (!file || isProcessing) return;
+      window.setTimeout(() => {
+        void processFile(file);
+      }, 0);
+    },
+    [isProcessing, processFile]
+  );
 
   const handleFileChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
-      if (file) void processFile(file);
       event.target.value = "";
+      queueFile(file);
     },
-    [processFile]
+    [queueFile]
   );
 
   const handleDrop = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
       event.preventDefault();
       setIsDragging(false);
-      if (isProcessing) return;
-      const file = event.dataTransfer.files?.[0];
-      if (file) void processFile(file);
+      queueFile(event.dataTransfer.files?.[0]);
     },
-    [isProcessing, processFile]
+    [queueFile]
   );
 
   const handleClear = useCallback(() => {
@@ -157,14 +151,17 @@ export function ExcelViewer() {
     setFileName(null);
     setError(null);
     setProgress(INITIAL_PROGRESS);
-    setSorting([]);
-    setColumnFilters([]);
-    setPagination({ pageIndex: 0, pageSize: 50 });
   }, []);
 
-  const filteredCount = table.getFilteredRowModel().rows.length;
-  const totalCount = parsedData?.totalRows ?? 0;
   const showUploadZone = !parsedData && !isProcessing;
+  const canUpload = engineState === "ready" && !isProcessing;
+
+  const engineLabel =
+    engineState === "ready"
+      ? "Motor listo"
+      : engineState === "loading"
+        ? "Inicializando motor…"
+        : "Motor con error";
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -179,12 +176,23 @@ export function ExcelViewer() {
                 A3 Excel
               </h1>
               <p className="text-xs text-muted-foreground">
-                Análisis local · Sin envío al servidor
+                Análisis local · Archivos a3ERP vía Excel en tu PC
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
+            <span
+              className={cn(
+                "hidden rounded-sm border px-2 py-1 text-xs sm:inline",
+                engineState === "ready" && "border-foreground/20 text-foreground",
+                engineState === "loading" &&
+                  "border-border text-muted-foreground",
+                engineState === "error" && "border-destructive/40 text-destructive"
+              )}
+            >
+              {engineLabel}
+            </span>
             {fileName && !isProcessing && (
               <span className="hidden max-w-[240px] truncate text-xs text-muted-foreground sm:inline">
                 {fileName}
@@ -202,6 +210,18 @@ export function ExcelViewer() {
       </header>
 
       <main className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-6 px-6 py-8">
+        {engineState === "loading" && (
+          <div className="rounded-sm border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+            Inicializando motor de Excel en segundo plano…
+          </div>
+        )}
+
+        {engineError && (
+          <div className="rounded-sm border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {engineError}
+          </div>
+        )}
+
         {isProcessing && fileName && (
           <ProcessingPanel fileName={fileName} progress={progress} />
         )}
@@ -209,23 +229,32 @@ export function ExcelViewer() {
         {showUploadZone && (
           <div
             role="button"
-            tabIndex={0}
+            tabIndex={canUpload ? 0 : -1}
+            aria-disabled={!canUpload}
             onKeyDown={(e) => {
+              if (!canUpload) return;
               if (e.key === "Enter" || e.key === " ")
                 fileInputRef.current?.click();
             }}
             onDragOver={(e) => {
+              if (!canUpload) return;
               e.preventDefault();
               setIsDragging(true);
             }}
             onDragLeave={() => setIsDragging(false)}
             onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => {
+              if (canUpload) fileInputRef.current?.click();
+            }}
             className={cn(
-              "noir-grid flex cursor-pointer flex-col items-center justify-center rounded-sm border border-dashed px-8 py-20 transition-colors",
-              isDragging
+              "noir-grid flex flex-col items-center justify-center rounded-sm border border-dashed px-8 py-20 transition-colors",
+              canUpload && "cursor-pointer",
+              !canUpload && "cursor-wait opacity-80",
+              isDragging && canUpload
                 ? "border-foreground/40 bg-accent"
-                : "border-border bg-card hover:border-muted-foreground/30 hover:bg-accent/50"
+                : "border-border bg-card",
+              canUpload &&
+                "hover:border-muted-foreground/30 hover:bg-accent/50"
             )}
           >
             <input
@@ -237,10 +266,38 @@ export function ExcelViewer() {
             />
             <Upload className="mb-4 h-8 w-8 text-muted-foreground" />
             <p className="text-sm font-medium">
-              Arrastra un archivo Excel o haz clic para seleccionar
+              {engineState === "ready"
+                ? "Arrastra un archivo Excel o haz clic para seleccionar"
+                : "Preparando motor de lectura…"}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
               Formatos admitidos: .XLS, .XLSX
+            </p>
+          </div>
+        )}
+
+        {showUploadZone && (
+          <div className="mx-auto w-full max-w-md space-y-2">
+            <label
+              htmlFor="excel-password"
+              className="text-xs font-medium text-muted-foreground"
+            >
+              Contraseña de apertura (opcional)
+            </label>
+            <Input
+              id="excel-password"
+              type="password"
+              placeholder="Solo si el archivo la pide al abrir"
+              value={filePassword}
+              onChange={(e) => setFilePassword(e.target.value)}
+              disabled={!canUpload}
+              className="h-9"
+            />
+            <p className="text-xs text-muted-foreground">
+              Los .XLS de a3ERP suelen estar cifrados: si el navegador no puede
+              leerlos, la app los abre con Excel instalado en esta computadora
+              (sin subirlos a internet). Si conocés la contraseña de apertura,
+              ingresala arriba.
             </p>
           </div>
         )}
@@ -252,200 +309,23 @@ export function ExcelViewer() {
         )}
 
         {parsedData && !isProcessing && (
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
-              <div className="flex flex-wrap items-center gap-4">
-                <span>
-                  Hoja:{" "}
-                  <span className="text-foreground">{parsedData.sheetName}</span>
-                </span>
-                <span>
-                  Registros:{" "}
-                  <span className="text-foreground">
-                    {filteredCount.toLocaleString("es-ES")}
-                  </span>
-                  {filteredCount !== totalCount && (
-                    <> de {totalCount.toLocaleString("es-ES")}</>
-                  )}
-                </span>
-                <span>
-                  Columnas:{" "}
-                  <span className="text-foreground">
-                    {parsedData.columns.length}
-                  </span>
-                </span>
-              </div>
-
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Upload className="h-3.5 w-3.5" />
-                Otro archivo
-              </Button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xls,.xlsx"
-                onChange={handleFileChange}
-                className="hidden"
-              />
-            </div>
-
-            <div className="overflow-hidden rounded-sm border border-border bg-card">
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    {table.getHeaderGroups().map((headerGroup) => (
-                      <TableRow
-                        key={headerGroup.id}
-                        className="border-border hover:bg-transparent"
-                      >
-                        {headerGroup.headers.map((header) => (
-                          <TableHead key={header.id} className="min-w-[140px]">
-                            {header.isPlaceholder ? null : (
-                              <div className="flex flex-col gap-2 py-1">
-                                <button
-                                  type="button"
-                                  className="flex items-center gap-1.5 text-left hover:text-foreground"
-                                  onClick={header.column.getToggleSortingHandler()}
-                                >
-                                  {flexRender(
-                                    header.column.columnDef.header,
-                                    header.getContext()
-                                  )}
-                                  {header.column.getIsSorted() === "asc" ? (
-                                    <ArrowUp className="h-3.5 w-3.5 text-foreground" />
-                                  ) : header.column.getIsSorted() === "desc" ? (
-                                    <ArrowDown className="h-3.5 w-3.5 text-foreground" />
-                                  ) : (
-                                    <ArrowUpDown className="h-3.5 w-3.5 opacity-40" />
-                                  )}
-                                </button>
-                                <Input
-                                  placeholder="Filtrar..."
-                                  value={
-                                    (header.column.getFilterValue() as string) ??
-                                    ""
-                                  }
-                                  onChange={(e) =>
-                                    header.column.setFilterValue(e.target.value)
-                                  }
-                                  className="h-7 text-xs"
-                                />
-                              </div>
-                            )}
-                          </TableHead>
-                        ))}
-                      </TableRow>
-                    ))}
-                  </TableHeader>
-                  <TableBody>
-                    {table.getRowModel().rows.length > 0 ? (
-                      table.getRowModel().rows.map((row) => (
-                        <TableRow key={row.id}>
-                          {row.getVisibleCells().map((cell) => (
-                            <TableCell
-                              key={cell.id}
-                              className="max-w-[280px] truncate font-mono text-xs"
-                              title={String(cell.getValue() ?? "")}
-                            >
-                              {flexRender(
-                                cell.column.columnDef.cell,
-                                cell.getContext()
-                              )}
-                            </TableCell>
-                          ))}
-                        </TableRow>
-                      ))
-                    ) : (
-                      <TableRow>
-                        <TableCell
-                          colSpan={columns.length}
-                          className="h-24 text-center text-muted-foreground"
-                        >
-                          Sin resultados para los filtros aplicados.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-4 border-t border-border px-4 py-3">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span>Filas por página</span>
-                  <select
-                    value={table.getState().pagination.pageSize}
-                    onChange={(e) => table.setPageSize(Number(e.target.value))}
-                    className="h-8 rounded-sm border border-input bg-input px-2 text-xs text-foreground"
-                  >
-                    {PAGE_SIZE_OPTIONS.map((size) => (
-                      <option key={size} value={size}>
-                        {size}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                  Página{" "}
-                  <span className="text-foreground">
-                    {table.getState().pagination.pageIndex + 1}
-                  </span>{" "}
-                  de{" "}
-                  <span className="text-foreground">
-                    {table.getPageCount().toLocaleString("es-ES")}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => table.setPageIndex(0)}
-                    disabled={!table.getCanPreviousPage()}
-                  >
-                    <ChevronsLeft className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => table.previousPage()}
-                    disabled={!table.getCanPreviousPage()}
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => table.nextPage()}
-                    disabled={!table.getCanNextPage()}
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => table.setPageIndex(table.getPageCount() - 1)}
-                    disabled={!table.getCanNextPage()}
-                  >
-                    <ChevronsRight className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
+          <ExcelDataTable
+            data={parsedData}
+            onUploadAnother={() => fileInputRef.current?.click()}
+          />
         )}
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".xls,.xlsx"
+          onChange={handleFileChange}
+          className="hidden"
+        />
       </main>
 
       <footer className="border-t border-border py-4 text-center text-xs text-muted-foreground">
-        Procesamiento 100% en el navegador · Los datos nunca salen de tu equipo
+        Procesamiento en tu equipo · Los datos no se envían a internet
       </footer>
     </div>
   );
