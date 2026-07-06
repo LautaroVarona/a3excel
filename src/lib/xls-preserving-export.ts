@@ -4,6 +4,7 @@ import {
 } from "./biff-patch";
 import { buildDecryptPasswordCandidates } from "./decrypt-workbook-buffer";
 import { isA3NativeExportLayout } from "./is-a3-native-export";
+import type { ParsedExcel } from "./excel-types";
 import {
   exportPreservingXlsBuffer,
   resolvePlainWorkbookForExport,

@@ -14,7 +14,7 @@ function setCell(
   XLSX: XlsxModule,
   col: number,
   row: number,
-  value: string | number | null | undefined,
+  value: string | number | boolean | null | undefined,
   bold = false
 ): void {
   if (value === null || value === undefined || value === "") return;
@@ -22,7 +22,9 @@ function setCell(
   const cell =
     typeof value === "number"
       ? { t: "n" as const, v: value }
-      : { t: "s" as const, v: String(value) };
+      : typeof value === "boolean"
+        ? { t: "b" as const, v: value }
+        : { t: "s" as const, v: String(value) };
   ws[address] = {
     ...cell,
     s: {
