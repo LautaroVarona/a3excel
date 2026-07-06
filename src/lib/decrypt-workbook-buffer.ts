@@ -1,4 +1,3 @@
-import * as CFB from "cfb";
 import officeCrypto from "officecrypto-tool";
 
 import { parseWorkbookBuffer } from "./parse-workbook-buffer";

@@ -251,7 +251,7 @@ function rebuildWorkbookCfb(
     }
   }
 
-  let output = CFB.utils.cfb_new();
+  const output = CFB.utils.cfb_new();
   CFB.utils.cfb_add(output, "Workbook", dec);
 
   const optionalEntries = [
@@ -286,7 +286,7 @@ function decryptWorkbookStream(
   blob.l -= 2;
   blob.l += bofSize;
 
-  let record = blob.read_shift(2);
+  const record = blob.read_shift(2);
   let filePass = record;
   if (record === RECORD.WriteProtect) {
     blob.read_shift(2);
@@ -318,7 +318,7 @@ export function decryptXls97Buffer(input: Buffer, password: string): Buffer | nu
   const workbookEntry = CFB.find(cfb, "Workbook") ?? CFB.find(cfb, "Book");
   if (!workbookEntry) return null;
 
-  let workbookContent = workbookEntry.content;
+  const workbookContent = workbookEntry.content;
   const workbookBlob = Buffer.isBuffer(workbookContent)
     ? workbookContent
     : Buffer.from(workbookContent);
