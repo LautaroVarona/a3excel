@@ -3,16 +3,6 @@
  */
 import crypto from "node:crypto";
 
-import CryptoJS from "crypto-js";
-
-function bufferToWordArray(buf: Buffer) {
-  return CryptoJS.lib.WordArray.create(Array.from(buf));
-}
-
-function wordArrayToBuffer(wordArray: CryptoJS.lib.WordArray): Buffer {
-  return Buffer.from(wordArray.toString(CryptoJS.enc.Hex), "hex");
-}
-
 function convertRc4PasswordToKey(
   password: string,
   salt: Buffer,
@@ -56,6 +46,11 @@ function convertRc4CryptoApiPasswordToKey(
   return hFinal.subarray(0, keyLength / 8);
 }
 
+function decryptRc4Chunk(key: Buffer, input: Buffer): Buffer {
+  const cipher = crypto.createDecipheriv("rc4", key, "");
+  return Buffer.concat([cipher.update(input), cipher.final()]);
+}
+
 export function verifyRc4Password(
   password: string,
   salt: Buffer,
@@ -63,11 +58,14 @@ export function verifyRc4Password(
   encryptedVerifierHash: Buffer
 ): boolean {
   const key = convertRc4PasswordToKey(password, salt, 0);
-  const cipher = CryptoJS.algo.RC4.createDecryptor(bufferToWordArray(key));
-  const verifier = cipher.finalize(bufferToWordArray(encryptedVerifier));
-  const hash = CryptoJS.MD5(verifier);
-  const verifierHash = cipher.finalize(bufferToWordArray(encryptedVerifierHash));
-  return verifierHash.toString(CryptoJS.enc.Hex) === hash.toString(CryptoJS.enc.Hex);
+  const cipher = crypto.createDecipheriv("rc4", key, "");
+  const verifier = cipher.update(encryptedVerifier);
+  const hash = crypto.createHash("md5").update(verifier).digest();
+  const verifierHash = Buffer.concat([
+    cipher.update(encryptedVerifierHash),
+    cipher.final(),
+  ]);
+  return verifierHash.equals(hash);
 }
 
 export function verifyRc4CryptoApiPassword(
@@ -78,11 +76,14 @@ export function verifyRc4CryptoApiPassword(
   encryptedVerifierHash: Buffer
 ): boolean {
   const key = convertRc4CryptoApiPasswordToKey(password, salt, keySize, 0);
-  const cipher = CryptoJS.algo.RC4.createDecryptor(bufferToWordArray(key));
-  const verifier = cipher.finalize(bufferToWordArray(encryptedVerifier));
-  const verifierHash = cipher.finalize(bufferToWordArray(encryptedVerifierHash));
-  const hash = CryptoJS.SHA1(verifier);
-  return verifierHash.toString(CryptoJS.enc.Hex) === hash.toString(CryptoJS.enc.Hex);
+  const cipher = crypto.createDecipheriv("rc4", key, "");
+  const verifier = cipher.update(encryptedVerifier);
+  const hash = crypto.createHash("sha1").update(verifier).digest();
+  const verifierHash = Buffer.concat([
+    cipher.update(encryptedVerifierHash),
+    cipher.final(),
+  ]);
+  return verifierHash.equals(hash);
 }
 
 export function decryptRc4Buffer(
@@ -99,11 +100,7 @@ export function decryptRc4Buffer(
     const end = Math.min(start + blocksize, input.length);
     const inputChunk = input.subarray(start, end);
     const key = convertRc4PasswordToKey(password, salt, block);
-    const cipher = CryptoJS.algo.RC4.createDecryptor(bufferToWordArray(key));
-    const outputChunk = wordArrayToBuffer(
-      cipher.finalize(bufferToWordArray(inputChunk))
-    );
-    outputChunks.push(outputChunk);
+    outputChunks.push(decryptRc4Chunk(key, inputChunk));
     block += 1;
     start = end;
   }
@@ -131,11 +128,7 @@ export function decryptRc4CryptoApiBuffer(
       keySize,
       block
     );
-    const cipher = CryptoJS.algo.RC4.createDecryptor(bufferToWordArray(key));
-    const outputChunk = wordArrayToBuffer(
-      cipher.finalize(bufferToWordArray(inputChunk))
-    );
-    outputChunks.push(outputChunk);
+    outputChunks.push(decryptRc4Chunk(key, inputChunk));
     block += 1;
     start = end;
   }
