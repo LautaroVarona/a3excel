@@ -33,6 +33,7 @@ export function ExcelViewer() {
   const { engineState, engineError, parseInWorker } = useExcelParser();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [parsedData, setParsedData] = useState<ParsedExcel | null>(null);
+  const [sourceBuffer, setSourceBuffer] = useState<ArrayBuffer | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState<ParseProgress>(INITIAL_PROGRESS);
@@ -57,6 +58,7 @@ export function ExcelViewer() {
       setFileName(name);
       setError(null);
       setParsedData(null);
+      setSourceBuffer(null);
       setProgress({
         ...INITIAL_PROGRESS,
         message: `Archivo seleccionado: ${name}`,
@@ -90,10 +92,10 @@ export function ExcelViewer() {
 
         setProgress({
           phase: "complete",
-          message: `Preparando tabla con ${result.totalRows.toLocaleString("es-ES")} filas…`,
+          message: `Preparando tabla con ${result.data.totalRows.toLocaleString("es-ES")} filas…`,
           percent: 100,
-          processed: result.totalRows,
-          total: result.totalRows,
+          processed: result.data.totalRows,
+          total: result.data.totalRows,
           elapsedMs: 0,
           estimatedRemainingMs: null,
         });
@@ -101,11 +103,13 @@ export function ExcelViewer() {
         await flushUI();
 
         startTransition(() => {
-          setParsedData(result);
+          setParsedData(result.data);
+          setSourceBuffer(result.sourceBuffer);
           setIsProcessing(false);
         });
       } catch (err) {
         setParsedData(null);
+        setSourceBuffer(null);
         setFileName(null);
         setError(
           err instanceof Error
@@ -148,6 +152,7 @@ export function ExcelViewer() {
 
   const handleClear = useCallback(() => {
     setParsedData(null);
+    setSourceBuffer(null);
     setFileName(null);
     setError(null);
     setProgress(INITIAL_PROGRESS);
@@ -311,6 +316,7 @@ export function ExcelViewer() {
           <ExcelDataTable
             data={parsedData}
             sourceFileName={fileName}
+            sourceBuffer={sourceBuffer}
             onUploadAnother={() => fileInputRef.current?.click()}
           />
         )}

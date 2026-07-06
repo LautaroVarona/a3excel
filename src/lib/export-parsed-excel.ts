@@ -40,12 +40,85 @@ function sanitizeSheetName(name: string): string {
 
 function buildOutputFileName(
   sourceFileName?: string | null,
-  sheetName?: string
+  sheetName?: string,
+  extension: "xls" | "xlsx" = "xlsx"
 ): string {
   const base = sourceFileName
     ? sourceFileName.replace(/\.(xls|xlsx)$/i, "")
     : sheetName?.trim() || "exportacion-a3";
-  return `${base}-editable.xlsx`;
+  return `${base}-editable.${extension}`;
+}
+
+function patchCellValue(
+  worksheet: WorkSheet,
+  address: string,
+  value: string | number | boolean | null | undefined
+): void {
+  if (value === null || value === undefined || value === "") {
+    delete worksheet[address];
+    return;
+  }
+
+  if (typeof value === "number") {
+    worksheet[address] = { t: "n", v: value };
+    return;
+  }
+
+  if (typeof value === "boolean") {
+    worksheet[address] = { t: "b", v: value };
+    return;
+  }
+
+  worksheet[address] = { t: "s", v: String(value) };
+}
+
+async function exportYmantFromSourceBuffer(
+  data: ParsedExcel,
+  sourceBuffer: ArrayBuffer,
+  sourceFileName?: string | null
+): Promise<void> {
+  const layout = data.layout;
+  if (!layout || layout.kind !== "ymant") {
+    throw new Error("El layout YMANT no está disponible para exportar.");
+  }
+
+  const XLSX = await import("xlsx-js-style");
+  const workbook = XLSX.read(sourceBuffer, { type: "array", cellDates: true });
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) {
+    throw new Error("El archivo original no contiene hojas.");
+  }
+
+  const worksheet = workbook.Sheets[sheetName];
+  patchCellValue(worksheet, "B8", layout.controlCode);
+
+  data.rows.forEach((row: ExcelRow, rowIndex) => {
+    const excelRowIndex = layout.dataStartRow1Based - 1 + rowIndex;
+
+    for (const column of data.columns) {
+      const colIndex = layout.columnIndices[column];
+      if (colIndex === undefined) continue;
+
+      const address = XLSX.utils.encode_cell({
+        c: colIndex,
+        r: excelRowIndex,
+      });
+      patchCellValue(worksheet, address, row[column] ?? null);
+    }
+  });
+
+  const useXls =
+    sourceFileName?.toLowerCase().endsWith(".xls") ?? true;
+  const outputName = buildOutputFileName(
+    sourceFileName,
+    data.sheetName,
+    useXls ? "xls" : "xlsx"
+  );
+
+  XLSX.writeFile(workbook, outputName, {
+    bookType: useXls ? "biff8" : "xlsx",
+    compression: !useXls,
+  });
 }
 
 function setCellValue(
@@ -185,8 +258,20 @@ function buildA3Worksheet(data: ParsedExcel, XLSX: XlsxModule): WorkSheet {
 
 export async function exportParsedExcelToFile(
   data: ParsedExcel,
-  options?: { sourceFileName?: string | null }
+  options?: {
+    sourceFileName?: string | null;
+    sourceBuffer?: ArrayBuffer | null;
+  }
 ): Promise<void> {
+  if (data.layout?.kind === "ymant" && options?.sourceBuffer) {
+    await exportYmantFromSourceBuffer(
+      data,
+      options.sourceBuffer,
+      options.sourceFileName
+    );
+    return;
+  }
+
   const XLSX = await import("xlsx-js-style");
   const worksheet = buildA3Worksheet(data, XLSX);
 
@@ -197,6 +282,9 @@ export async function exportParsedExcelToFile(
     sanitizeSheetName(data.sheetName)
   );
 
-  const outputName = buildOutputFileName(options?.sourceFileName, data.sheetName);
+  const outputName = buildOutputFileName(
+    options?.sourceFileName,
+    data.sheetName
+  );
   XLSX.writeFile(workbook, outputName, { bookType: "xlsx", compression: true });
 }

@@ -25,12 +25,23 @@ export interface ExcelExportMetadata {
   sectionTitle: string | null;
 }
 
+export interface A3YmantLayout {
+  kind: "ymant";
+  controlCode: string;
+  headerRow1Based: number;
+  dataStartRow1Based: number;
+  /** Etiqueta de columna → índice de columna 0-based en Excel. */
+  columnIndices: Record<string, number>;
+}
+
 export interface ParsedExcel {
   sheetName: string;
   columns: string[];
   rows: ExcelRow[];
   totalRows: number;
   metadata: ExcelExportMetadata;
+  /** Presente en exports A3NOM formato 77 (YMANT). */
+  layout?: A3YmantLayout;
 }
 
 export const PHASE_LABELS: Record<ParsePhase, string> = {

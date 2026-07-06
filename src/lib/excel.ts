@@ -7,8 +7,13 @@ import {
 
 const SERVER_PARSE_TIMEOUT_MS = 120_000;
 
-export type { ExcelRow, ExcelExportMetadata, ParsePhase, ParseProgress, ParsedExcel } from "./excel-types";
+export type { ExcelRow, ExcelExportMetadata, ParsePhase, ParseProgress, ParsedExcel, A3YmantLayout } from "./excel-types";
 export { MAX_FILE_SIZE_BYTES, PARSE_TIMEOUT_MS, PHASE_LABELS };
+
+export interface ParseExcelResult {
+  data: ParsedExcel;
+  sourceBuffer: ArrayBuffer;
+}
 
 const VALID_EXTENSIONS = [".xls", ".xlsx"];
 
@@ -69,7 +74,7 @@ async function parseViaLocalServer(
   onProgress: (p: ParseProgress) => void,
   startTime: number,
   password?: string
-): Promise<ParsedExcel> {
+): Promise<ParseExcelResult> {
   emitProgress(onProgress, startTime, {
     phase: "parsing",
     message:
@@ -100,6 +105,7 @@ async function parseViaLocalServer(
 
     const payload = (await response.json()) as ParsedExcel & {
       error?: string;
+      sourceBufferBase64?: string;
       debug?: {
         encrypted: boolean;
         oleXls: boolean;
@@ -128,7 +134,12 @@ async function parseViaLocalServer(
       total: payload.totalRows,
     });
 
-    return payload;
+    const { sourceBufferBase64, ...parsed } = payload;
+    const sourceBuffer = sourceBufferBase64
+      ? Uint8Array.from(atob(sourceBufferBase64), (c) => c.charCodeAt(0)).buffer
+      : await file.arrayBuffer();
+
+    return { data: parsed, sourceBuffer };
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw new Error(
@@ -228,7 +239,7 @@ export async function parseExcelFileWithProgress(
     password?: string
   ) => Promise<ParsedExcel>,
   password?: string
-): Promise<ParsedExcel> {
+): Promise<ParseExcelResult> {
   const validationError = validateExcelFile(file);
   if (validationError) {
     throw new Error(validationError);
@@ -244,11 +255,18 @@ export async function parseExcelFileWithProgress(
     total: file.size,
   });
 
-  const parseTask = async (): Promise<ParsedExcel> => {
+  const parseTask = async (): Promise<ParseExcelResult> => {
     const buffer = await readFileWithProgress(file, onProgress, startTime);
+    const workerBuffer = buffer.slice(0);
 
     try {
-      return await parseInWorker(buffer, startTime, onProgress, password);
+      const data = await parseInWorker(
+        workerBuffer,
+        startTime,
+        onProgress,
+        password
+      );
+      return { data, sourceBuffer: buffer };
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Error al procesar el archivo.";

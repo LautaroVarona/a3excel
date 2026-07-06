@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx";
 
+import { detectYmantLayout, parseYmantWorksheet } from "./a3-ymant-format";
 import { EXCEL_HEADER_ROW_INDEX } from "./excel-parse-constants";
 import { extractA3Metadata } from "./extract-a3-metadata";
 import type { ExcelRow, ParsedExcel } from "./excel-types";
@@ -79,6 +80,11 @@ export function parseWorkbookBuffer(
   }
 
   const worksheet = workbook.Sheets[sheetName];
+  const ymantLayout = detectYmantLayout(worksheet);
+  if (ymantLayout) {
+    return parseYmantWorksheet(worksheet, ymantLayout, sheetName, MAX_ROWS);
+  }
+
   const metadata = extractA3Metadata(worksheet);
   const rawRows = XLSX.utils.sheet_to_json(worksheet, {
     range: EXCEL_HEADER_ROW_INDEX,

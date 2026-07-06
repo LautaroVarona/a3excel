@@ -28,12 +28,14 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 interface ExcelDataTableProps {
   data: ParsedExcel;
   sourceFileName?: string | null;
+  sourceBuffer?: ArrayBuffer | null;
   onUploadAnother: () => void;
 }
 
 export function ExcelDataTable({
   data,
   sourceFileName,
+  sourceBuffer,
   onUploadAnother,
 }: ExcelDataTableProps) {
   const { theme } = useTheme();
@@ -87,7 +89,7 @@ export function ExcelDataTable({
     setExportError(null);
     setIsExporting(true);
     try {
-      await exportParsedExcelToFile(data, { sourceFileName });
+      await exportParsedExcelToFile(data, { sourceFileName, sourceBuffer });
     } catch (err) {
       setExportError(
         err instanceof Error
@@ -97,7 +99,7 @@ export function ExcelDataTable({
     } finally {
       setIsExporting(false);
     }
-  }, [data, sourceFileName]);
+  }, [data, sourceBuffer, sourceFileName]);
 
   return (
     <div className="flex flex-col gap-4">

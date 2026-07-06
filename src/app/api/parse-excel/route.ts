@@ -64,7 +64,12 @@ async function resolveReadableBuffer(
   throw error;
 }
 
-export async function POST(request: Request) {
+function withSourceBuffer(parsed: ReturnType<typeof parseWorkbookBuffer>, buffer: Buffer) {
+  return {
+    ...parsed,
+    sourceBufferBase64: buffer.toString("base64"),
+  };
+}
   try {
     const formData = await request.formData();
     const file = formData.get("file");
@@ -108,12 +113,12 @@ export async function POST(request: Request) {
     if (officeCrypto.isEncrypted(input)) {
       const decrypted = await tryDecryptWorkbookBuffer(input, password);
       if (decrypted) {
-        return NextResponse.json(parseWorkbookBuffer(decrypted, password));
+        return NextResponse.json(withSourceBuffer(parseWorkbookBuffer(decrypted, password), decrypted));
       }
     }
 
     try {
-      return NextResponse.json(parseWorkbookBuffer(input, password));
+      return NextResponse.json(withSourceBuffer(parseWorkbookBuffer(input, password), input));
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Error al leer el archivo.";
@@ -123,7 +128,7 @@ export async function POST(request: Request) {
       }
 
       const readable = await resolveReadableBuffer(input, extension, password);
-      return NextResponse.json(parseWorkbookBuffer(readable, password));
+      return NextResponse.json(withSourceBuffer(parseWorkbookBuffer(readable, password), readable));
     }
   } catch (error) {
     const message =
