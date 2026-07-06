@@ -1,9 +1,15 @@
 /**
- * Descifrado XLS BIFF97 con XOR (exports a3ERP). Portado de officecrypto-tool
- * para empaquetarse en el bundle serverless de Next.js/Vercel.
+ * Descifrado XLS BIFF97 (XOR + RC4) para exports a3ERP.
  */
 import * as CFB from "cfb";
 import type { CFB$Container } from "cfb";
+
+import {
+  decryptRc4Buffer,
+  decryptRc4CryptoApiBuffer,
+  verifyRc4CryptoApiPassword,
+  verifyRc4Password,
+} from "./rc4-decrypt";
 
 const BIFF8 = 1536;
 
@@ -55,6 +61,24 @@ const xorMatrix = [
 
 type CfbBlob = Buffer & { l: number; read_shift: (size: number) => number };
 
+type EncryptionData = {
+  type?: "rc4" | "rc4_crypto_api";
+  salt?: Buffer;
+  keySize?: number;
+};
+
+export type XlsEncryptionInfo = {
+  encrypted: boolean;
+  encryptionType: "none" | "xor" | "rc4" | "rc4_crypto_api" | "unsupported";
+};
+
+type WorkbookRecord = {
+  header: Buffer;
+  num: number;
+  size: number;
+  record: Buffer;
+};
+
 function prepBlob(buffer: Buffer): CfbBlob {
   const blob = Buffer.from(buffer) as CfbBlob;
   CFB.utils.prep_blob(blob, 0);
@@ -79,8 +103,8 @@ function verifyXorPassword(password: string, verificationBytes: number): boolean
 }
 
 function createXorKeyMethod1(password: string): number {
-  const codeIndex = Math.max(0, password.length - 1);
-  let xorKey = initialCode[codeIndex] ?? initialCode[0];
+  // Igual que officecrypto-tool: con contraseña vacía usa initialCode[-1] → undefined.
+  let xorKey = initialCode[password.length - 1] as number;
   let currentElement = 0x68;
 
   for (let i = password.length - 1; i >= 0; i--) {
@@ -113,8 +137,10 @@ function createXorArrayMethod1(password: string): number[] {
     obfuscationArray[index] = xorRor(padArray[0], temp);
     index -= 1;
     temp = xorKey & 0x00ff;
-    const passwordLastChar = password.charCodeAt(password.length - 1);
-    obfuscationArray[index] = xorRor(passwordLastChar, temp);
+    obfuscationArray[index] = xorRor(
+      password.charCodeAt(password.length - 1),
+      temp
+    );
   }
 
   while (index > 0) {
@@ -184,13 +210,6 @@ function decryptXorData(
   return Buffer.concat(chunks);
 }
 
-type WorkbookRecord = {
-  header: Buffer;
-  num: number;
-  size: number;
-  record: Buffer;
-};
-
 function iterRecord(blob: CfbBlob): WorkbookRecord[] {
   const dataList: WorkbookRecord[] = [];
 
@@ -211,10 +230,44 @@ function iterRecord(blob: CfbBlob): WorkbookRecord[] {
   return dataList;
 }
 
+function parseHeaderRC4(blob: CfbBlob) {
+  const salt = blob.slice(blob.l, blob.l + 16);
+  blob.l += 16;
+  const encryptedVerifier = blob.slice(blob.l, blob.l + 16);
+  blob.l += 16;
+  const encryptedVerifierHash = blob.slice(blob.l, blob.l + 16);
+  blob.l += 16;
+  return { salt, encryptedVerifier, encryptedVerifierHash };
+}
+
+function parseHeaderRC4CryptoAPI(blob: CfbBlob, headerSize: number) {
+  const length = blob.l + headerSize;
+  blob.read_shift(4);
+  blob.read_shift(4);
+  blob.read_shift(4);
+  blob.read_shift(4);
+  const keySize = blob.read_shift(4);
+  blob.l = length;
+  return { keySize };
+}
+
+function parseRc4CryptoApiEncryptionVerifier(blob: CfbBlob) {
+  blob.read_shift(4);
+  const salt = blob.slice(blob.l, blob.l + 16);
+  blob.l += 16;
+  const encryptedVerifier = blob.slice(blob.l, blob.l + 16);
+  blob.l += 16;
+  const verifierHashSize = blob.read_shift(4);
+  const encryptedVerifierHash = blob.slice(blob.l, blob.l + verifierHashSize);
+  blob.l += verifierHashSize;
+  return { salt, encryptedVerifier, encryptedVerifierHash };
+}
+
 function rebuildWorkbookCfb(
   currCfb: CFB$Container,
   blob: CfbBlob,
-  password: string
+  password: string,
+  encryption: EncryptionData
 ): Buffer {
   blob.l = 0;
   const dataList = iterRecord(blob);
@@ -229,9 +282,11 @@ function rebuildWorkbookCfb(
       plainBuf.push(...header, ...record);
       encryptedParts.push(Buffer.alloc(4 + size));
     } else if (num === RECORD.BoundSheet8) {
-      const lbPlyPos = record.subarray(0, 4);
-      const restSize = size - 4;
-      plainBuf.push(...header, ...lbPlyPos, ...Array(restSize).fill(-2));
+      plainBuf.push(
+        ...header,
+        ...record.subarray(0, 4),
+        ...Array(size - 4).fill(-2)
+      );
       encryptedParts.push(
         Buffer.concat([Buffer.alloc(4), Buffer.alloc(4), record.subarray(4)])
       );
@@ -242,7 +297,25 @@ function rebuildWorkbookCfb(
   }
 
   const encryptedBuf = Buffer.concat(encryptedParts);
-  const dec = decryptXorData(password, encryptedBuf, plainBuf);
+  let dec: Buffer;
+
+  if (encryption.type === "rc4" && encryption.salt) {
+    dec = decryptRc4Buffer(password, encryption.salt, encryptedBuf, 1024);
+  } else if (
+    encryption.type === "rc4_crypto_api" &&
+    encryption.salt &&
+    encryption.keySize
+  ) {
+    dec = decryptRc4CryptoApiBuffer(
+      password,
+      encryption.salt,
+      encryption.keySize,
+      encryptedBuf,
+      1024
+    );
+  } else {
+    dec = decryptXorData(password, encryptedBuf, plainBuf);
+  }
 
   for (let i = 0; i < plainBuf.length; i++) {
     const marker = plainBuf[i];
@@ -254,23 +327,141 @@ function rebuildWorkbookCfb(
   const output = CFB.utils.cfb_new();
   CFB.utils.cfb_add(output, "Workbook", dec);
 
-  const optionalEntries = [
+  for (const name of [
     "ETExtData",
     "\u0001CompObj",
     "\u0005SummaryInformation",
     "\u0005DocumentSummaryInformation",
-  ] as const;
-
-  for (const name of optionalEntries) {
+  ]) {
     const entry = CFB.find(currCfb, name);
-    if (entry) {
-      CFB.utils.cfb_add(output, name, entry.content);
-    }
+    if (entry) CFB.utils.cfb_add(output, name, entry.content);
   }
 
   CFB.utils.cfb_del(output, "\u0001Sh33tJ5");
   const written = CFB.write(output);
   return Buffer.isBuffer(written) ? written : Buffer.from(written);
+}
+
+function parseEncryptionHeader(
+  blob: CfbBlob,
+  vers: number
+): { info: XlsEncryptionInfo; encryption: EncryptionData } | null {
+  const record = blob.read_shift(2);
+  let filePass = record;
+  if (record === RECORD.WriteProtect) {
+    blob.read_shift(2);
+    filePass = blob.read_shift(2);
+  }
+
+  if (filePass !== RECORD.FilePass) {
+    return {
+      info: { encrypted: false, encryptionType: "none" },
+      encryption: {},
+    };
+  }
+
+  blob.read_shift(2);
+  const wEncryptionType = vers === BIFF8 ? blob.read_shift(2) : 0;
+
+  if (wEncryptionType === 0x0000) {
+    blob.read_shift(2);
+    const verificationBytes = blob.read_shift(2);
+    return {
+      info: { encrypted: true, encryptionType: "xor" },
+      encryption: { verificationBytes } as EncryptionData & {
+        verificationBytes: number;
+      },
+    };
+  }
+
+  if (wEncryptionType !== 0x0001) {
+    return {
+      info: { encrypted: true, encryptionType: "unsupported" },
+      encryption: {},
+    };
+  }
+
+  const vMajor = blob.read_shift(2);
+  const vMinor = blob.read_shift(2);
+
+  if (vMajor === 0x0001 && vMinor === 0x0001) {
+    const { salt, encryptedVerifier, encryptedVerifierHash } = parseHeaderRC4(blob);
+    return {
+      info: { encrypted: true, encryptionType: "rc4" },
+      encryption: {
+        type: "rc4",
+        salt,
+        encryptedVerifier,
+        encryptedVerifierHash,
+      } as EncryptionData & {
+        encryptedVerifier: Buffer;
+        encryptedVerifierHash: Buffer;
+      },
+    };
+  }
+
+  if ([0x0002, 0x0003, 0x0004].includes(vMajor) && vMinor === 0x0002) {
+    blob.read_shift(4);
+    const headerSize = blob.read_shift(4);
+    const { keySize } = parseHeaderRC4CryptoAPI(blob, headerSize);
+    const { salt, encryptedVerifier, encryptedVerifierHash } =
+      parseRc4CryptoApiEncryptionVerifier(blob);
+    return {
+      info: { encrypted: true, encryptionType: "rc4_crypto_api" },
+      encryption: {
+        type: "rc4_crypto_api",
+        keySize,
+        salt,
+        encryptedVerifier,
+        encryptedVerifierHash,
+      } as EncryptionData & {
+        encryptedVerifier: Buffer;
+        encryptedVerifierHash: Buffer;
+      },
+    };
+  }
+
+  return {
+    info: { encrypted: true, encryptionType: "unsupported" },
+    encryption: {},
+  };
+}
+
+function passwordMatchesEncryption(
+  password: string,
+  encryptionType: XlsEncryptionInfo["encryptionType"],
+  encryption: EncryptionData & {
+    verificationBytes?: number;
+    encryptedVerifier?: Buffer;
+    encryptedVerifierHash?: Buffer;
+  }
+): boolean {
+  if (encryptionType === "xor") {
+    return verifyXorPassword(password, encryption.verificationBytes ?? -1);
+  }
+  if (encryptionType === "rc4" && encryption.salt && encryption.encryptedVerifier) {
+    return verifyRc4Password(
+      password,
+      encryption.salt,
+      encryption.encryptedVerifier,
+      encryption.encryptedVerifierHash!
+    );
+  }
+  if (
+    encryptionType === "rc4_crypto_api" &&
+    encryption.salt &&
+    encryption.encryptedVerifier &&
+    encryption.keySize
+  ) {
+    return verifyRc4CryptoApiPassword(
+      password,
+      encryption.salt,
+      encryption.keySize,
+      encryption.encryptedVerifier,
+      encryption.encryptedVerifierHash!
+    );
+  }
+  return false;
 }
 
 function decryptWorkbookStream(
@@ -286,31 +477,54 @@ function decryptWorkbookStream(
   blob.l -= 2;
   blob.l += bofSize;
 
-  const record = blob.read_shift(2);
-  let filePass = record;
-  if (record === RECORD.WriteProtect) {
+  const parsed = parseEncryptionHeader(blob, vers);
+  if (!parsed) return null;
+
+  const { info, encryption } = parsed;
+  if (!info.encrypted) return input;
+  if (info.encryptionType === "unsupported") return null;
+
+  const extendedEncryption = encryption as EncryptionData & {
+    verificationBytes?: number;
+    encryptedVerifier?: Buffer;
+    encryptedVerifierHash?: Buffer;
+  };
+
+  const verified = passwordMatchesEncryption(
+    password,
+    info.encryptionType,
+    extendedEncryption
+  );
+
+  if (!verified && info.encryptionType !== "xor") {
+    return null;
+  }
+
+  return rebuildWorkbookCfb(currCfb, blob, password, encryption);
+}
+
+export function getXlsEncryptionInfo(input: Buffer): XlsEncryptionInfo {
+  try {
+    const cfb = CFB.read(input, { type: "buffer" });
+    const workbookEntry = CFB.find(cfb, "Workbook") ?? CFB.find(cfb, "Book");
+    if (!workbookEntry) return { encrypted: false, encryptionType: "none" };
+
+    const workbookBlob = Buffer.isBuffer(workbookEntry.content)
+      ? workbookEntry.content
+      : Buffer.from(workbookEntry.content);
+    const blob = prepBlob(workbookBlob);
     blob.read_shift(2);
-    filePass = blob.read_shift(2);
+    const bofSize = blob.read_shift(2);
+    const vers = blob.read_shift(2);
+    blob.l -= 2;
+    blob.l += bofSize;
+    return parseEncryptionHeader(blob, vers)?.info ?? {
+      encrypted: false,
+      encryptionType: "none",
+    };
+  } catch {
+    return { encrypted: false, encryptionType: "none" };
   }
-
-  if (filePass !== RECORD.FilePass) {
-    return input;
-  }
-
-  blob.read_shift(2);
-  const wEncryptionType = vers === BIFF8 ? blob.read_shift(2) : 0;
-
-  if (wEncryptionType !== 0x0000) {
-    return null;
-  }
-
-  blob.read_shift(2);
-  const verificationBytes = blob.read_shift(2);
-  if (!verifyXorPassword(password, verificationBytes)) {
-    return null;
-  }
-
-  return rebuildWorkbookCfb(currCfb, blob, password);
 }
 
 export function decryptXls97Buffer(input: Buffer, password: string): Buffer | null {
@@ -318,10 +532,9 @@ export function decryptXls97Buffer(input: Buffer, password: string): Buffer | nu
   const workbookEntry = CFB.find(cfb, "Workbook") ?? CFB.find(cfb, "Book");
   if (!workbookEntry) return null;
 
-  const workbookContent = workbookEntry.content;
-  const workbookBlob = Buffer.isBuffer(workbookContent)
-    ? workbookContent
-    : Buffer.from(workbookContent);
+  const workbookBlob = Buffer.isBuffer(workbookEntry.content)
+    ? workbookEntry.content
+    : Buffer.from(workbookEntry.content);
 
   try {
     return decryptWorkbookStream(cfb, workbookBlob, password, input);

@@ -3,6 +3,7 @@ import officeCrypto from "officecrypto-tool";
 import { parseWorkbookBuffer } from "./parse-workbook-buffer";
 import {
   decryptXls97Buffer,
+  getXlsEncryptionInfo,
   xls97DecryptAvailable,
 } from "./xls97-decrypt";
 
@@ -38,25 +39,19 @@ export function isOleXls(buffer: Buffer): boolean {
   );
 }
 
-function canParseWorkbook(buffer: Buffer, password?: string): boolean {
+function isUsableDecryptResult(input: Buffer, output: Buffer): boolean {
+  if (output.length === 0) return false;
+  if (input.equals(output)) return false;
+  return canParseWorkbook(output);
+}
+
+function canParseWorkbook(buffer: Buffer): boolean {
   try {
-    parseWorkbookBuffer(buffer, password);
+    parseWorkbookBuffer(buffer);
     return true;
   } catch {
     return false;
   }
-}
-
-function isUsableDecryptResult(
-  input: Buffer,
-  output: Buffer,
-  password?: string
-): boolean {
-  if (output.length === 0) return false;
-  if (!input.equals(output) && canParseWorkbook(output, password)) {
-    return true;
-  }
-  return canParseWorkbook(output, password);
 }
 
 async function decryptWithCandidate(
@@ -65,7 +60,7 @@ async function decryptWithCandidate(
 ): Promise<Buffer | null> {
   if (isOleXls(input)) {
     const xls97Output = decryptXls97Buffer(input, password);
-    if (xls97Output && isUsableDecryptResult(input, xls97Output, password)) {
+    if (xls97Output && isUsableDecryptResult(input, xls97Output)) {
       return xls97Output;
     }
   }
@@ -78,7 +73,7 @@ async function decryptWithCandidate(
     const output = Buffer.from(
       await officeCrypto.decrypt(input, { password })
     );
-    if (isUsableDecryptResult(input, output, password)) {
+    if (isUsableDecryptResult(input, output)) {
       return output;
     }
   } catch {
@@ -93,6 +88,7 @@ export type DecryptDiagnostics = {
   oleXls: boolean;
   xls97ModuleLoaded: boolean;
   candidatesTried: number;
+  encryptionType?: string;
 };
 
 /**
@@ -116,10 +112,12 @@ export async function tryDecryptWorkbookBuffer(
 }
 
 export function getDecryptDiagnostics(input: Buffer): DecryptDiagnostics {
+  const xlsInfo = isOleXls(input) ? getXlsEncryptionInfo(input) : null;
   return {
     encrypted: officeCrypto.isEncrypted(input),
     oleXls: isOleXls(input),
     xls97ModuleLoaded: xls97DecryptAvailable,
     candidatesTried: buildDecryptPasswordCandidates().length,
+    encryptionType: xlsInfo?.encryptionType,
   };
 }

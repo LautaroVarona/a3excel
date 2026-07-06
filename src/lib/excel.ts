@@ -105,6 +105,7 @@ async function parseViaLocalServer(
         oleXls: boolean;
         xls97ModuleLoaded: boolean;
         candidatesTried: number;
+        encryptionType?: string;
       };
     };
 
