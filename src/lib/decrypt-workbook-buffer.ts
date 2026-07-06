@@ -1,14 +1,20 @@
+import * as XLSX from "xlsx";
 import officeCrypto from "officecrypto-tool";
 
 import { parseWorkbookBuffer } from "./parse-workbook-buffer";
 import {
   decryptXls97Buffer,
+  findVerifiedRc4Password,
   getXlsEncryptionInfo,
   xls97DecryptAvailable,
 } from "./xls97-decrypt";
 
-/** Claves habituales en exports .xls de a3ERP (RC4/XOR). */
+/**
+ * Claves habituales en exports .xls de a3ERP / Office BIFF.
+ * VelvetSweatshop: contraseña RC4 por defecto que Excel aplica sin pedirla al usuario.
+ */
 const DEFAULT_PASSWORD_CANDIDATES = [
+  "VelvetSweatshop",
   "",
   " ",
   "velneo",
@@ -57,6 +63,17 @@ function isUsableDecryptResult(input: Buffer, output: Buffer): boolean {
 
 function canParseWorkbook(buffer: Buffer): boolean {
   try {
+    const workbook = XLSX.read(buffer, {
+      type: "buffer",
+      cellDates: true,
+      sheetRows: 2,
+    });
+    if (workbook.SheetNames.length > 0) return true;
+  } catch {
+    // Seguimos con el parser completo de la app.
+  }
+
+  try {
     parseWorkbookBuffer(buffer);
     return true;
   } catch {
@@ -68,26 +85,24 @@ async function decryptWithCandidate(
   input: Buffer,
   password: string
 ): Promise<Buffer | null> {
+  if (password !== "") {
+    try {
+      const output = Buffer.from(
+        await officeCrypto.decrypt(input, { password })
+      );
+      if (isUsableDecryptResult(input, output)) {
+        return output;
+      }
+    } catch {
+      // officecrypto-tool usa crypto-js internamente; probamos nuestro RC4.
+    }
+  }
+
   if (isOleXls(input)) {
     const xls97Output = decryptXls97Buffer(input, password);
     if (xls97Output && isUsableDecryptResult(input, xls97Output)) {
       return xls97Output;
     }
-  }
-
-  if (password === "") {
-    return null;
-  }
-
-  try {
-    const output = Buffer.from(
-      await officeCrypto.decrypt(input, { password })
-    );
-    if (isUsableDecryptResult(input, output)) {
-      return output;
-    }
-  } catch {
-    // officecrypto también falla con RC4 en algunos entornos; seguimos.
   }
 
   return null;
@@ -110,6 +125,15 @@ export async function tryDecryptWorkbookBuffer(
   userPassword?: string
 ): Promise<Buffer | null> {
   const candidates = buildDecryptPasswordCandidates(userPassword);
+  const xlsInfo = isOleXls(input) ? getXlsEncryptionInfo(input) : null;
+
+  if (xlsInfo?.encryptionType === "rc4") {
+    const verified = findVerifiedRc4Password(input, candidates);
+    if (verified) {
+      const output = await decryptWithCandidate(input, verified);
+      if (output) return output;
+    }
+  }
 
   for (const password of candidates) {
     const output = await decryptWithCandidate(input, password);

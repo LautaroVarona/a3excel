@@ -7,6 +7,7 @@ import type { CFB$Container } from "cfb";
 import {
   decryptRc4Buffer,
   decryptRc4CryptoApiBuffer,
+  verifyRc4Password,
 } from "./rc4-decrypt";
 
 const BIFF8 = 1536;
@@ -433,6 +434,78 @@ function decryptWorkbookStream(
   } catch {
     return null;
   }
+}
+
+type Rc4EncryptionParams = {
+  salt: Buffer;
+  encryptedVerifier: Buffer;
+  encryptedVerifierHash: Buffer;
+};
+
+function getRc4EncryptionParams(input: Buffer): Rc4EncryptionParams | null {
+  try {
+    const cfb = CFB.read(input, { type: "buffer" });
+    const workbookEntry = CFB.find(cfb, "Workbook") ?? CFB.find(cfb, "Book");
+    if (!workbookEntry) return null;
+
+    const workbookBlob = Buffer.isBuffer(workbookEntry.content)
+      ? workbookEntry.content
+      : Buffer.from(workbookEntry.content);
+    const blob = prepBlob(workbookBlob);
+    blob.read_shift(2);
+    const bofSize = blob.read_shift(2);
+    const vers = blob.read_shift(2);
+    blob.l -= 2;
+    blob.l += bofSize;
+
+    const parsed = parseEncryptionHeader(blob, vers);
+    if (!parsed || parsed.info.encryptionType !== "rc4") return null;
+
+    const encryption = parsed.encryption as EncryptionData & {
+      salt?: Buffer;
+      encryptedVerifier?: Buffer;
+      encryptedVerifierHash?: Buffer;
+    };
+
+    if (
+      !encryption.salt ||
+      !encryption.encryptedVerifier ||
+      !encryption.encryptedVerifierHash
+    ) {
+      return null;
+    }
+
+    return {
+      salt: encryption.salt,
+      encryptedVerifier: encryption.encryptedVerifier,
+      encryptedVerifierHash: encryption.encryptedVerifierHash,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function findVerifiedRc4Password(
+  input: Buffer,
+  candidates: string[]
+): string | null {
+  const params = getRc4EncryptionParams(input);
+  if (!params) return null;
+
+  for (const password of candidates) {
+    if (
+      verifyRc4Password(
+        password,
+        params.salt,
+        params.encryptedVerifier,
+        params.encryptedVerifierHash
+      )
+    ) {
+      return password;
+    }
+  }
+
+  return null;
 }
 
 export function getXlsEncryptionInfo(input: Buffer): XlsEncryptionInfo {
