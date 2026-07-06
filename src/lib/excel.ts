@@ -4,6 +4,7 @@ import {
   PARSE_TIMEOUT_MS,
   PHASE_LABELS,
 } from "./excel-types";
+import { needsA3ServerParse } from "./a3-xls-read-strategies";
 
 const SERVER_PARSE_TIMEOUT_MS = 120_000;
 
@@ -264,6 +265,11 @@ export async function parseExcelFileWithProgress(
         onProgress,
         password
       );
+
+      if (needsA3ServerParse(file.name, buffer.byteLength, data.layout?.kind === "ymant")) {
+        return parseViaLocalServer(file, onProgress, startTime, password);
+      }
+
       return { data, sourceBuffer: buffer };
     } catch (error) {
       const message =

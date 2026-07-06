@@ -222,14 +222,19 @@ function mapPasswordError() {
 function readWorkbook(buffer, password) {
   const base = { type: "array", cellDates: true, sheetRows: MAX_ROWS };
   const strategies = [];
+  const seen = new Set();
 
-  if (password) {
-    strategies.push({ ...base, password });
-  }
+  const add = (opts) => {
+    const key = opts.password ?? "";
+    if (seen.has(key)) return;
+    seen.add(key);
+    strategies.push({ ...base, ...opts });
+  };
 
-  strategies.push(base);
-  // Algunos .xls antiguos usan XOR con clave vacía (protección de escritura).
-  strategies.push({ ...base, password: " " });
+  if (password) add({ password });
+  add({ password: "VelvetSweatshop" });
+  add({ password: " " });
+  add({});
 
   let lastError = null;
 

@@ -44,10 +44,3 @@ export function exportYmantPreservingBuffer(
     resolvedPassword ?? candidates[0] ?? "VelvetSweatshop"
   );
 }
-
-export function buildEditableExportName(sourceFileName?: string | null): string {
-  const base = sourceFileName
-    ? sourceFileName.replace(/\.(xls|xlsx)$/i, "")
-    : "exportacion-a3";
-  return `${base}-editable.xls`;
-}

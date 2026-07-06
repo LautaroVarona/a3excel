@@ -1,7 +1,9 @@
 import type { ParsedExcel } from "./excel-types";
+import { buildEditableExportName } from "./a3-export-filename";
 import {
-  buildEditableExportName,
-} from "./xls-preserving-export";
+  A3_ENCRYPTED_XLS_MIN_BYTES,
+  isLikelyEncryptedA3Xls,
+} from "./a3-xls-read-strategies";
 
 function downloadBuffer(buffer: ArrayBuffer, fileName: string): void {
   const blob = new Blob([buffer], {
@@ -25,7 +27,7 @@ async function exportYmantViaServer(
   formData.append(
     "file",
     new Blob([sourceBuffer], { type: "application/vnd.ms-excel" }),
-    sourceFileName ?? "export.xls"
+    buildEditableExportName(sourceFileName)
   );
   formData.append(
     "payload",
@@ -54,6 +56,15 @@ async function exportYmantViaServer(
   }
 
   const output = await response.arrayBuffer();
+  if (
+    isLikelyEncryptedA3Xls(sourceFileName, sourceBuffer.byteLength) &&
+    output.byteLength < A3_ENCRYPTED_XLS_MIN_BYTES
+  ) {
+    throw new Error(
+      "El export no preservó la estructura del .XLS original de A3. " +
+        "Recargá el archivo original e intentá de nuevo."
+    );
+  }
   downloadBuffer(output, buildEditableExportName(sourceFileName));
 }
 
@@ -65,10 +76,23 @@ export async function exportParsedExcelToFile(
     password?: string;
   }
 ): Promise<void> {
-  if (data.layout?.kind === "ymant" && options?.sourceBuffer) {
+  const hasYmantLayout = data.layout?.kind === "ymant";
+  const sourceBuffer = options?.sourceBuffer;
+
+  if (
+    isLikelyEncryptedA3Xls(options?.sourceFileName, sourceBuffer?.byteLength ?? 0) &&
+    !hasYmantLayout
+  ) {
+    throw new Error(
+      "No se detectó el formato YMANT (77) de A3NOM. " +
+        "Volvé a importar el .XLS original exportado por A3 antes de editar."
+    );
+  }
+
+  if (hasYmantLayout && sourceBuffer) {
     await exportYmantViaServer(
       data,
-      options.sourceBuffer,
+      sourceBuffer,
       options.sourceFileName,
       options.password
     );
@@ -173,12 +197,7 @@ export async function exportParsedExcelToFile(
     (data.sheetName || "Datos").replace(/[:\\/?*[\]]/g, " ").trim().slice(0, 31)
   );
 
-  const base = options?.sourceFileName
-    ? options.sourceFileName.replace(/\.(xls|xlsx)$/i, "")
-    : data.sheetName?.trim() || "exportacion-a3";
-
-  XLSX.writeFile(workbook, `${base}-editable.xlsx`, {
-    bookType: "xlsx",
-    compression: true,
+  XLSX.writeFile(workbook, buildEditableExportName(options?.sourceFileName), {
+    bookType: "biff8",
   });
 }

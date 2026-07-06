@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 
 import type { ParsedExcel } from "@/lib/excel-types";
+import { buildEditableExportName } from "@/lib/a3-export-filename";
 import {
-  buildEditableExportName,
-  exportYmantPreservingBuffer,
-} from "@/lib/xls-preserving-export";
+  A3_ENCRYPTED_XLS_MIN_BYTES,
+  isLikelyEncryptedA3Xls,
+} from "@/lib/a3-xls-read-strategies";
+import { exportYmantPreservingBuffer } from "@/lib/xls-preserving-export";
 import { MAX_FILE_SIZE_BYTES } from "@/lib/excel-types";
 
 export const runtime = "nodejs";
@@ -69,6 +71,19 @@ export async function POST(request: Request) {
       },
       password
     );
+
+    if (
+      isLikelyEncryptedA3Xls(file.name, input.length) &&
+      output.length < A3_ENCRYPTED_XLS_MIN_BYTES
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "El export no preservó la estructura del .XLS cifrado de A3.",
+        },
+        { status: 422 }
+      );
+    }
 
     const fileName = buildEditableExportName(file.name);
 

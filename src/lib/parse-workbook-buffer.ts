@@ -1,14 +1,12 @@
 import * as XLSX from "xlsx";
 
+import { buildXlsReadPasswordStrategies } from "./a3-xls-read-strategies";
 import { detectYmantLayout, parseYmantWorksheet } from "./a3-ymant-format";
 import { EXCEL_HEADER_ROW_INDEX } from "./excel-parse-constants";
 import { extractA3Metadata } from "./extract-a3-metadata";
 import type { ExcelRow, ParsedExcel } from "./excel-types";
 
 const MAX_ROWS = 50_000;
-
-/** Clave XOR habitual en exports .xls de a3ERP (protección de escritura). */
-const A3ERP_XOR_PASSWORD = " ";
 
 function isPasswordError(message: string): boolean {
   const text = message.toLowerCase();
@@ -30,12 +28,7 @@ function readWorkbook(
     sheetRows: MAX_ROWS,
   };
 
-  const strategies: Array<{ password?: string }> = [];
-  if (password) {
-    strategies.push({ password });
-  }
-  strategies.push({});
-  strategies.push({ password: A3ERP_XOR_PASSWORD });
+  const strategies = buildXlsReadPasswordStrategies(password);
 
   let lastError: unknown = null;
 

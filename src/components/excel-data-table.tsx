@@ -152,6 +152,11 @@ export function ExcelDataTable({
             Columnas:{" "}
             <span className="text-foreground">{data.columns.length}</span>
           </span>
+          {data.layout?.kind === "ymant" && (
+            <span className="rounded-sm border border-foreground/20 px-2 py-0.5 text-foreground">
+              Formato A3 YMANT (77)
+            </span>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
