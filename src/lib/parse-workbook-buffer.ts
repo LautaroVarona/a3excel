@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 
 import { EXCEL_HEADER_ROW_INDEX } from "./excel-parse-constants";
+import { extractA3Metadata } from "./extract-a3-metadata";
 import type { ExcelRow, ParsedExcel } from "./excel-types";
 
 const MAX_ROWS = 50_000;
@@ -62,6 +63,10 @@ function normalizeCellValue(
   return String(value);
 }
 
+function isValidColumnKey(key: string): boolean {
+  return key.length > 0 && !key.startsWith("__EMPTY");
+}
+
 export function parseWorkbookBuffer(
   buffer: Buffer | ArrayBuffer,
   password?: string
@@ -74,6 +79,7 @@ export function parseWorkbookBuffer(
   }
 
   const worksheet = workbook.Sheets[sheetName];
+  const metadata = extractA3Metadata(worksheet);
   const rawRows = XLSX.utils.sheet_to_json(worksheet, {
     range: EXCEL_HEADER_ROW_INDEX,
     defval: null,
@@ -85,6 +91,7 @@ export function parseWorkbookBuffer(
   const rows: ExcelRow[] = rawRows.map((raw) => {
     const normalized: ExcelRow = {};
     for (const [key, value] of Object.entries(raw)) {
+      if (!isValidColumnKey(key)) continue;
       normalized[String(key)] = normalizeCellValue(value);
     }
     return normalized;
@@ -93,7 +100,7 @@ export function parseWorkbookBuffer(
   const columnSet = new Set<string>();
   for (const row of rows) {
     for (const key of Object.keys(row)) {
-      columnSet.add(key);
+      if (isValidColumnKey(key)) columnSet.add(key);
     }
   }
 
@@ -102,5 +109,6 @@ export function parseWorkbookBuffer(
     columns: Array.from(columnSet),
     rows,
     totalRows,
+    metadata,
   };
 }

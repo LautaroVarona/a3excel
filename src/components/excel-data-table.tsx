@@ -13,6 +13,7 @@ import {
 import { Upload } from "lucide-react";
 
 import { ExcelAutoFilter } from "@/components/grid/excel-auto-filter";
+import { ExcelExportHeader } from "@/components/excel-export-header";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/components/theme-provider";
 import { type ParsedExcel, formatCellValue } from "@/lib/excel";
@@ -76,6 +77,8 @@ export function ExcelDataTable({ data, onUploadAnother }: ExcelDataTableProps) {
 
   return (
     <div className="flex flex-col gap-4">
+      <ExcelExportHeader metadata={data.metadata} />
+
       <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
         <div className="flex flex-wrap items-center gap-4">
           <span>

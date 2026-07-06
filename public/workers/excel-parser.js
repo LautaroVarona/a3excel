@@ -2,13 +2,49 @@
 
 const ROW_CHUNK_SIZE = 500;
 const MAX_ROWS = 50_000;
-/** Índice 0-based de la fila de encabezados (fila 6 en Excel). */
-const EXCEL_HEADER_ROW_INDEX = 5;
+/** Índice 0-based de la fila de encabezados (fila 8 en Excel). */
+const EXCEL_HEADER_ROW_INDEX = 7;
+
+const A3_METADATA_CELLS = {
+  companyCode: "D2",
+  companyName: "E2",
+  selection: "D3",
+  exportDate: "D5",
+};
+
+function readCellDisplay(worksheet, address) {
+  const cell = worksheet[address];
+  if (!cell) return null;
+
+  if (cell.w != null && cell.w !== "") {
+    return String(cell.w);
+  }
+
+  const value = cell.v;
+  if (value === null || value === undefined || value === "") return null;
+  if (value instanceof Date) {
+    return value.toLocaleDateString("es-ES");
+  }
+  return String(value);
+}
+
+function extractA3Metadata(worksheet) {
+  return {
+    companyCode: readCellDisplay(worksheet, A3_METADATA_CELLS.companyCode),
+    companyName: readCellDisplay(worksheet, A3_METADATA_CELLS.companyName),
+    selection: readCellDisplay(worksheet, A3_METADATA_CELLS.selection),
+    exportDate: readCellDisplay(worksheet, A3_METADATA_CELLS.exportDate),
+  };
+}
 
 function normalizeCellValue(value) {
   if (value === null || value === undefined || value === "") return null;
   if (typeof value === "boolean" || typeof value === "number") return value;
   return String(value);
+}
+
+function isValidColumnKey(key) {
+  return key.length > 0 && !key.startsWith("__EMPTY");
 }
 
 function estimateRemaining(processed, total, elapsedMs) {
@@ -127,6 +163,7 @@ async function parseBuffer(buffer, jobId, startTime, password) {
   await yieldToMain();
 
   const worksheet = workbook.Sheets[sheetName];
+  const metadata = extractA3Metadata(worksheet);
   const rawRows = XLSX.utils.sheet_to_json(worksheet, {
     range: EXCEL_HEADER_ROW_INDEX,
     defval: null,
@@ -155,6 +192,7 @@ async function parseBuffer(buffer, jobId, startTime, password) {
       const raw = rawRows[j];
       const normalized = {};
       for (const [key, value] of Object.entries(raw)) {
+        if (!isValidColumnKey(key)) continue;
         normalized[String(key)] = normalizeCellValue(value);
       }
       rows.push(normalized);
@@ -174,7 +212,7 @@ async function parseBuffer(buffer, jobId, startTime, password) {
   const columnSet = new Set();
   for (const row of rows) {
     for (const key of Object.keys(row)) {
-      columnSet.add(key);
+      if (isValidColumnKey(key)) columnSet.add(key);
     }
   }
   const columns = Array.from(columnSet);
@@ -189,7 +227,7 @@ async function parseBuffer(buffer, jobId, startTime, password) {
     total: totalRows,
   });
 
-  return { sheetName, columns, rows, totalRows };
+  return { sheetName, columns, rows, totalRows, metadata };
 }
 
 self.onmessage = async (event) => {

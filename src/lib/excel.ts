@@ -7,7 +7,7 @@ import {
 
 const SERVER_PARSE_TIMEOUT_MS = 120_000;
 
-export type { ExcelRow, ParsePhase, ParseProgress, ParsedExcel } from "./excel-types";
+export type { ExcelRow, ExcelExportMetadata, ParsePhase, ParseProgress, ParsedExcel } from "./excel-types";
 export { MAX_FILE_SIZE_BYTES, PARSE_TIMEOUT_MS, PHASE_LABELS };
 
 const VALID_EXTENSIONS = [".xls", ".xlsx"];

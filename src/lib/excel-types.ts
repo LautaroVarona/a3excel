@@ -17,11 +17,19 @@ export interface ParseProgress {
 
 export type ExcelRow = Record<string, string | number | boolean | null>;
 
+export interface ExcelExportMetadata {
+  companyCode: string | null;
+  companyName: string | null;
+  selection: string | null;
+  exportDate: string | null;
+}
+
 export interface ParsedExcel {
   sheetName: string;
   columns: string[];
   rows: ExcelRow[];
   totalRows: number;
+  metadata: ExcelExportMetadata;
 }
 
 export const PHASE_LABELS: Record<ParsePhase, string> = {

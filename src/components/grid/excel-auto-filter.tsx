@@ -46,7 +46,6 @@ export function ExcelAutoFilter({
   onModelChange,
   getValue,
   api,
-  column,
 }: CustomFilterProps<ExcelRow, unknown, ExcelFilterModel>) {
   const [text, setText] = useState(model?.text ?? "");
   const [textType, setTextType] = useState<ExcelFilterModel["textType"]>(
