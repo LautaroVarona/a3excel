@@ -40,6 +40,8 @@ export interface ParsedExcel {
   rows: ExcelRow[];
   totalRows: number;
   metadata: ExcelExportMetadata;
+  /** Snapshot inicial para detectar cambios al exportar. */
+  originalRows?: ExcelRow[];
   /** Presente en exports A3NOM formato 77 (YMANT). */
   layout?: A3YmantLayout;
 }

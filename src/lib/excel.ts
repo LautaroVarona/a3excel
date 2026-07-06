@@ -134,10 +134,8 @@ async function parseViaLocalServer(
       total: payload.totalRows,
     });
 
-    const { sourceBufferBase64, ...parsed } = payload;
-    const sourceBuffer = sourceBufferBase64
-      ? Uint8Array.from(atob(sourceBufferBase64), (c) => c.charCodeAt(0)).buffer
-      : await file.arrayBuffer();
+    const { sourceBufferBase64: _ignored, ...parsed } = payload;
+    const sourceBuffer = await file.arrayBuffer();
 
     return { data: parsed, sourceBuffer };
   } catch (error) {

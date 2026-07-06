@@ -103,7 +103,10 @@ export function ExcelViewer() {
         await flushUI();
 
         startTransition(() => {
-          setParsedData(result.data);
+          setParsedData({
+            ...result.data,
+            originalRows: structuredClone(result.data.rows),
+          });
           setSourceBuffer(result.sourceBuffer);
           setIsProcessing(false);
         });
@@ -317,6 +320,7 @@ export function ExcelViewer() {
             data={parsedData}
             sourceFileName={fileName}
             sourceBuffer={sourceBuffer}
+            filePassword={filePassword}
             onUploadAnother={() => fileInputRef.current?.click()}
           />
         )}

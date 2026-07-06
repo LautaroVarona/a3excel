@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { AgGridReact } from "ag-grid-react";
 import {
   AllCommunityModule,
@@ -29,6 +29,7 @@ interface ExcelDataTableProps {
   data: ParsedExcel;
   sourceFileName?: string | null;
   sourceBuffer?: ArrayBuffer | null;
+  filePassword?: string;
   onUploadAnother: () => void;
 }
 
@@ -36,9 +37,11 @@ export function ExcelDataTable({
   data,
   sourceFileName,
   sourceBuffer,
+  filePassword,
   onUploadAnother,
 }: ExcelDataTableProps) {
   const { theme } = useTheme();
+  const gridApiRef = useRef<GridApi | null>(null);
   const [filteredCount, setFilteredCount] = useState(data.totalRows);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -48,6 +51,7 @@ export function ExcelDataTable({
       filter: true,
       sortable: true,
       resizable: true,
+      editable: true,
       minWidth: 140,
     }),
     []
@@ -73,6 +77,7 @@ export function ExcelDataTable({
 
   const onGridReady = useCallback(
     (event: GridReadyEvent) => {
+      gridApiRef.current = event.api;
       updateFilteredCount(event.api);
     },
     [updateFilteredCount]
@@ -85,11 +90,35 @@ export function ExcelDataTable({
     [updateFilteredCount]
   );
 
+  const collectRowsForExport = useCallback((): ParsedExcel["rows"] => {
+    const api = gridApiRef.current;
+    if (!api) return data.rows;
+
+    const rows: ParsedExcel["rows"] = [];
+    api.forEachNodeAfterFilterAndSort((node) => {
+      if (node.data) {
+        rows.push(node.data as ParsedExcel["rows"][number]);
+      }
+    });
+    return rows.length > 0 ? rows : data.rows;
+  }, [data.rows]);
+
   const handleExport = useCallback(async () => {
     setExportError(null);
     setIsExporting(true);
     try {
-      await exportParsedExcelToFile(data, { sourceFileName, sourceBuffer });
+      await exportParsedExcelToFile(
+        {
+          ...data,
+          rows: collectRowsForExport(),
+          originalRows: data.originalRows ?? data.rows,
+        },
+        {
+          sourceFileName,
+          sourceBuffer,
+          password: filePassword?.trim() || undefined,
+        }
+      );
     } catch (err) {
       setExportError(
         err instanceof Error
@@ -99,7 +128,7 @@ export function ExcelDataTable({
     } finally {
       setIsExporting(false);
     }
-  }, [data, sourceBuffer, sourceFileName]);
+  }, [collectRowsForExport, data, filePassword, sourceBuffer, sourceFileName]);
 
   return (
     <div className="flex flex-col gap-4">

@@ -548,4 +548,176 @@ export function decryptXls97Buffer(input: Buffer, password: string): Buffer | nu
   }
 }
 
+function buildEncryptedBlobFromPlain(
+  plainWorkbook: Buffer,
+  password: string,
+  encryption: EncryptionData
+): Buffer {
+  const plainRecords = iterRecord(prepBlob(plainWorkbook));
+  const plainBuf: number[] = [];
+  const encryptedParts: Buffer[] = [];
+
+  for (const { header, num, size, record } of plainRecords) {
+    if (num === RECORD.FilePass) {
+      plainBuf.push(0, 0, header[2], header[3], ...Array(size).fill(0));
+      encryptedParts.push(Buffer.alloc(4 + size));
+    } else if (PLAIN_RECORDS.has(num)) {
+      plainBuf.push(...header, ...record);
+      encryptedParts.push(Buffer.alloc(4 + size));
+    } else if (num === RECORD.BoundSheet8) {
+      plainBuf.push(
+        ...header,
+        ...record.subarray(0, 4),
+        ...Array(size - 4).fill(-2)
+      );
+      encryptedParts.push(
+        Buffer.concat([Buffer.alloc(4), record.subarray(4)])
+      );
+    } else {
+      plainBuf.push(...header, ...Array(size).fill(-1));
+      encryptedParts.push(Buffer.concat([Buffer.alloc(4), record]));
+    }
+  }
+
+  const encryptedPayload = Buffer.concat(encryptedParts);
+
+  let encryptedStream: Buffer;
+  if (encryption.type === "rc4" && encryption.salt) {
+    encryptedStream = decryptRc4Buffer(
+      password,
+      encryption.salt,
+      encryptedPayload,
+      1024
+    );
+  } else if (
+    encryption.type === "rc4_crypto_api" &&
+    encryption.salt &&
+    encryption.keySize
+  ) {
+    encryptedStream = decryptRc4CryptoApiBuffer(
+      password,
+      encryption.salt,
+      encryption.keySize,
+      encryptedPayload,
+      1024
+    );
+  } else {
+    encryptedStream = decryptXorData(password, encryptedPayload, plainBuf);
+  }
+
+  const output = Buffer.alloc(plainBuf.length);
+  let encryptedOffset = 0;
+
+  for (let i = 0; i < plainBuf.length; i++) {
+    const marker = plainBuf[i];
+    if (marker === -1 || marker === -2) {
+      output[i] = encryptedStream[encryptedOffset];
+      encryptedOffset += 1;
+    } else {
+      output[i] = marker;
+    }
+  }
+
+  return output;
+}
+
+function getWorkbookBlob(input: Buffer): Buffer | null {
+  const cfb = CFB.read(input, { type: "buffer" });
+  const workbookEntry = CFB.find(cfb, "Workbook") ?? CFB.find(cfb, "Book");
+  if (!workbookEntry) return null;
+
+  return Buffer.isBuffer(workbookEntry.content)
+    ? workbookEntry.content
+    : Buffer.from(workbookEntry.content);
+}
+
+function getPlainWorkbookStream(input: Buffer): Buffer {
+  const workbookBlob = getWorkbookBlob(input);
+  if (!workbookBlob) {
+    throw new Error("No se encontró el stream Workbook en el archivo.");
+  }
+
+  const blob = prepBlob(workbookBlob);
+  blob.read_shift(2);
+  const bofSize = blob.read_shift(2);
+  const vers = blob.read_shift(2);
+  blob.l -= 2;
+  blob.l += bofSize;
+
+  const parsed = parseEncryptionHeader(blob, vers);
+  if (!parsed || !parsed.info.encrypted) {
+    return workbookBlob;
+  }
+
+  throw new Error("El stream Workbook sigue cifrado.");
+}
+
+export function exportPreservingXlsBuffer(
+  input: Buffer,
+  plainWorkbook: Buffer,
+  password: string
+): Buffer {
+  const workbookBlob = getWorkbookBlob(input);
+  if (!workbookBlob) {
+    throw new Error("No se encontró el stream Workbook en el archivo.");
+  }
+
+  const blob = prepBlob(workbookBlob);
+  blob.read_shift(2);
+  const bofSize = blob.read_shift(2);
+  const vers = blob.read_shift(2);
+  blob.l -= 2;
+  blob.l += bofSize;
+
+  const parsed = parseEncryptionHeader(blob, vers);
+  const outputCfb = CFB.read(input, { type: "buffer" });
+
+  if (!parsed || !parsed.info.encrypted) {
+    CFB.utils.cfb_add(outputCfb, "Workbook", plainWorkbook);
+    const written = CFB.write(outputCfb);
+    return Buffer.isBuffer(written) ? written : Buffer.from(written);
+  }
+
+  const encryptedWorkbook = buildEncryptedBlobFromPlain(
+    plainWorkbook,
+    password,
+    parsed.encryption
+  );
+  CFB.utils.cfb_add(outputCfb, "Workbook", encryptedWorkbook);
+  const written = CFB.write(outputCfb);
+  return Buffer.isBuffer(written) ? written : Buffer.from(written);
+}
+
+export function resolvePlainWorkbookForExport(
+  input: Buffer,
+  passwordCandidates: string[]
+): { plainWorkbook: Buffer; workingCopy: Buffer; password: string | null } {
+  for (const password of passwordCandidates) {
+    const decrypted = decryptXls97Buffer(input, password);
+    if (!decrypted) continue;
+
+    try {
+      return {
+        plainWorkbook: getPlainWorkbookStream(decrypted),
+        workingCopy: decrypted,
+        password,
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  try {
+    return {
+      plainWorkbook: getPlainWorkbookStream(input),
+      workingCopy: input,
+      password: null,
+    };
+  } catch {
+    throw new Error(
+      "No se pudo descifrar el .XLS original para exportar en formato A3."
+    );
+  }
+}
+
 export const xls97DecryptAvailable = true;
