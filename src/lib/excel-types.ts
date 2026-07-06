@@ -22,6 +22,7 @@ export interface ExcelExportMetadata {
   companyName: string | null;
   selection: string | null;
   exportDate: string | null;
+  sectionTitle: string | null;
 }
 
 export interface ParsedExcel {

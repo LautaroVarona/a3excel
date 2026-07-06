@@ -10,7 +10,10 @@ const A3_METADATA_CELLS = {
   companyName: "E2",
   selection: "D3",
   exportDate: "D5",
+  sectionTitle: "B7",
 };
+
+const DEFAULT_A3_SECTION_TITLE = "Trabajadores";
 
 function readCellDisplay(worksheet, address) {
   const cell = worksheet[address];
@@ -34,6 +37,9 @@ function extractA3Metadata(worksheet) {
     companyName: readCellDisplay(worksheet, A3_METADATA_CELLS.companyName),
     selection: readCellDisplay(worksheet, A3_METADATA_CELLS.selection),
     exportDate: readCellDisplay(worksheet, A3_METADATA_CELLS.exportDate),
+    sectionTitle:
+      readCellDisplay(worksheet, A3_METADATA_CELLS.sectionTitle) ??
+      DEFAULT_A3_SECTION_TITLE,
   };
 }
 

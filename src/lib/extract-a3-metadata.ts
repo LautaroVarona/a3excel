@@ -1,6 +1,9 @@
 import type { WorkSheet } from "xlsx";
 
-import { A3_METADATA_CELLS } from "./excel-parse-constants";
+import {
+  A3_METADATA_CELLS,
+  DEFAULT_A3_SECTION_TITLE,
+} from "./excel-parse-constants";
 import type { ExcelExportMetadata } from "./excel-types";
 
 function readCellDisplay(worksheet: WorkSheet, address: string): string | null {
@@ -25,6 +28,9 @@ export function extractA3Metadata(worksheet: WorkSheet): ExcelExportMetadata {
     companyName: readCellDisplay(worksheet, A3_METADATA_CELLS.companyName),
     selection: readCellDisplay(worksheet, A3_METADATA_CELLS.selection),
     exportDate: readCellDisplay(worksheet, A3_METADATA_CELLS.exportDate),
+    sectionTitle:
+      readCellDisplay(worksheet, A3_METADATA_CELLS.sectionTitle) ??
+      DEFAULT_A3_SECTION_TITLE,
   };
 }
 
