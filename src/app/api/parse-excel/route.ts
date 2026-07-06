@@ -70,6 +70,8 @@ function withSourceBuffer(parsed: ReturnType<typeof parseWorkbookBuffer>, buffer
     sourceBufferBase64: buffer.toString("base64"),
   };
 }
+
+export async function POST(request: Request) {
   try {
     const formData = await request.formData();
     const file = formData.get("file");
