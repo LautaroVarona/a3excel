@@ -30,18 +30,49 @@ function isEncryptionError(message: string): boolean {
   );
 }
 
+/** Clave XOR habitual en exports .xls de a3ERP (protección de escritura). */
+const A3ERP_XOR_PASSWORD = " ";
+
+function buildDecryptPasswords(userPassword?: string): string[] {
+  const seen = new Set<string>();
+  const candidates: string[] = [];
+  const add = (value: string) => {
+    if (seen.has(value)) return;
+    seen.add(value);
+    candidates.push(value);
+  };
+  if (userPassword) add(userPassword);
+  add(A3ERP_XOR_PASSWORD);
+  return candidates;
+}
+
+async function tryOfficeCryptoDecrypt(
+  input: Buffer,
+  passwords: string[]
+): Promise<Buffer | null> {
+  const { decrypt } = await import("officecrypto-tool");
+  for (const candidate of passwords) {
+    try {
+      const output = await decrypt(input, { password: candidate });
+      return Buffer.from(output);
+    } catch {
+      // Probamos la siguiente clave.
+    }
+  }
+  return null;
+}
+
 async function parseEncryptedBuffer(
   input: Buffer,
   extension: ".xls" | ".xlsx",
   password?: string
 ): Promise<Buffer> {
-  if (password) {
-    try {
-      const { decrypt } = await import("officecrypto-tool");
-      return Buffer.from(await decrypt(input, { password }));
-    } catch {
-      // Si la contraseña no sirve, probamos Excel COM en Windows.
-    }
+  const decrypted = await tryOfficeCryptoDecrypt(
+    input,
+    buildDecryptPasswords(password)
+  );
+  if (decrypted) {
+    return decrypted;
   }
 
   if (canUseExcelCom()) {
@@ -49,8 +80,10 @@ async function parseEncryptedBuffer(
   }
 
   throw new Error(
-    "Este archivo está cifrado. En Windows con Excel instalado se abre automáticamente; " +
-      "en otros entornos ingresá la contraseña de apertura."
+    password
+      ? "La contraseña no es válida o el cifrado no es compatible con este entorno."
+      : "Este archivo está cifrado. Ingresá la contraseña de apertura en el campo inferior, " +
+          "o guardá una copia .xlsx sin protección desde Excel."
   );
 }
 
@@ -96,7 +129,7 @@ export async function POST(request: Request) {
     const input = Buffer.from(await file.arrayBuffer());
 
     try {
-      return NextResponse.json(parseWorkbookBuffer(input));
+      return NextResponse.json(parseWorkbookBuffer(input, password));
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Error al leer el archivo.";
@@ -106,7 +139,7 @@ export async function POST(request: Request) {
       }
 
       const decrypted = await parseEncryptedBuffer(input, extension, password);
-      return NextResponse.json(parseWorkbookBuffer(decrypted));
+      return NextResponse.json(parseWorkbookBuffer(decrypted, password));
     }
   } catch (error) {
     const message =

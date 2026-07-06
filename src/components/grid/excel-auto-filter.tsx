@@ -67,7 +67,7 @@ export function ExcelAutoFilter({
     return Array.from(values).sort((a, b) =>
       a.localeCompare(b, "es", { numeric: true, sensitivity: "base" })
     );
-  }, [api, column, getValue]);
+  }, [api, getValue]);
 
   const visibleValues = useMemo(() => {
     const query = miniFilter.trim().toLowerCase();

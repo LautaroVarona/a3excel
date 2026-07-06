@@ -294,10 +294,9 @@ export function ExcelViewer() {
               className="h-9"
             />
             <p className="text-xs text-muted-foreground">
-              Los .XLS de a3ERP suelen estar cifrados: si el navegador no puede
-              leerlos, la app los abre con Excel instalado en esta computadora
-              (sin subirlos a internet). Si conocés la contraseña de apertura,
-              ingresala arriba.
+              Los .XLS de a3ERP suelen estar cifrados. Si el navegador no puede
+              leerlos, se envían al servidor para descifrarlos (clave XOR de
+              a3ERP o la contraseña que ingreses arriba).
             </p>
           </div>
         )}
@@ -325,7 +324,8 @@ export function ExcelViewer() {
       </main>
 
       <footer className="border-t border-border py-4 text-center text-xs text-muted-foreground">
-        Procesamiento en tu equipo · Los datos no se envían a internet
+        Lectura inicial en el navegador · Los archivos protegidos se procesan en
+        el servidor
       </footer>
     </div>
   );

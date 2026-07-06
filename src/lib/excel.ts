@@ -73,7 +73,7 @@ async function parseViaLocalServer(
   emitProgress(onProgress, startTime, {
     phase: "parsing",
     message:
-      "El archivo está protegido — abriendo con Excel instalado en esta PC…",
+      "El archivo está protegido — descifrando en el servidor (sin Excel local)…",
     percent: 35,
     processed: 0,
     total: 1,

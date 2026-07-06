@@ -5,6 +5,55 @@ import type { ExcelRow, ParsedExcel } from "./excel-types";
 
 const MAX_ROWS = 50_000;
 
+/** Clave XOR habitual en exports .xls de a3ERP (protección de escritura). */
+const A3ERP_XOR_PASSWORD = " ";
+
+function isPasswordError(message: string): boolean {
+  const text = message.toLowerCase();
+  return (
+    text.includes("password") ||
+    text.includes("encrypt") ||
+    text.includes("file is password") ||
+    text.includes("unsupported password")
+  );
+}
+
+function readWorkbook(
+  buffer: Buffer | ArrayBuffer,
+  password?: string
+): XLSX.WorkBook {
+  const base = {
+    type: "buffer" as const,
+    cellDates: true,
+    sheetRows: MAX_ROWS,
+  };
+
+  const strategies: Array<{ password?: string }> = [];
+  if (password) {
+    strategies.push({ password });
+  }
+  strategies.push({});
+  strategies.push({ password: A3ERP_XOR_PASSWORD });
+
+  let lastError: unknown = null;
+
+  for (const extra of strategies) {
+    try {
+      return XLSX.read(buffer, { ...base, ...extra });
+    } catch (err) {
+      lastError = err;
+      const message = err instanceof Error ? err.message : String(err);
+      if (!isPasswordError(message)) {
+        throw err;
+      }
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("No se pudo leer el archivo Excel protegido.");
+}
+
 function normalizeCellValue(
   value: unknown
 ): string | number | boolean | null {
@@ -13,12 +62,11 @@ function normalizeCellValue(
   return String(value);
 }
 
-export function parseWorkbookBuffer(buffer: Buffer | ArrayBuffer): ParsedExcel {
-  const workbook = XLSX.read(buffer, {
-    type: "buffer",
-    cellDates: true,
-    sheetRows: MAX_ROWS,
-  });
+export function parseWorkbookBuffer(
+  buffer: Buffer | ArrayBuffer,
+  password?: string
+): ParsedExcel {
+  const workbook = readWorkbook(buffer, password);
 
   const sheetName = workbook.SheetNames[0];
   if (!sheetName) {
