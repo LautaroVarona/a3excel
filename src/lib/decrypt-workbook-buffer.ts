@@ -7,8 +7,18 @@ import {
   xls97DecryptAvailable,
 } from "./xls97-decrypt";
 
-/** Claves habituales en exports .xls de a3ERP (XOR con contraseña vacía o un espacio). */
-const DEFAULT_PASSWORD_CANDIDATES = ["", " ", "velneo", "VELNEO", "a3", "A3"] as const;
+/** Claves habituales en exports .xls de a3ERP (RC4/XOR). */
+const DEFAULT_PASSWORD_CANDIDATES = [
+  "",
+  " ",
+  "velneo",
+  "VELNEO",
+  "Velneo",
+  "a3",
+  "A3",
+  "a3erp",
+  "A3ERP",
+] as const;
 
 export function buildDecryptPasswordCandidates(
   userPassword?: string
@@ -77,7 +87,7 @@ async function decryptWithCandidate(
       return output;
     }
   } catch {
-    // Probamos la siguiente clave.
+    // officecrypto también falla con RC4 en algunos entornos; seguimos.
   }
 
   return null;

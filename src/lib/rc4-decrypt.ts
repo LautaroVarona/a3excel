@@ -1,7 +1,32 @@
 /**
- * RC4 / RC4-CryptoAPI para XLS BIFF97 (portado de officecrypto-tool).
+ * RC4 / RC4-CryptoAPI para XLS BIFF97.
+ * RC4 en JS puro: OpenSSL 3 (Node 20+ en Vercel) no expone RC4 vía crypto.createDecipheriv.
  */
 import crypto from "node:crypto";
+
+/** RC4 simétrico (encrypt = decrypt). */
+function rc4(key: Buffer, data: Buffer): Buffer {
+  const state = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) state[i] = i;
+
+  let j = 0;
+  for (let i = 0; i < 256; i++) {
+    j = (j + state[i] + key[i % key.length]) & 255;
+    [state[i], state[j]] = [state[j], state[i]];
+  }
+
+  const output = Buffer.alloc(data.length);
+  let i = 0;
+  j = 0;
+  for (let n = 0; n < data.length; n++) {
+    i = (i + 1) & 255;
+    j = (j + state[i]) & 255;
+    [state[i], state[j]] = [state[j], state[i]];
+    output[n] = data[n] ^ state[(state[i] + state[j]) & 255];
+  }
+
+  return output;
+}
 
 function convertRc4PasswordToKey(
   password: string,
@@ -46,11 +71,6 @@ function convertRc4CryptoApiPasswordToKey(
   return hFinal.subarray(0, keyLength / 8);
 }
 
-function decryptRc4Chunk(key: Buffer, input: Buffer): Buffer {
-  const cipher = crypto.createDecipheriv("rc4", key, "");
-  return Buffer.concat([cipher.update(input), cipher.final()]);
-}
-
 export function verifyRc4Password(
   password: string,
   salt: Buffer,
@@ -58,13 +78,10 @@ export function verifyRc4Password(
   encryptedVerifierHash: Buffer
 ): boolean {
   const key = convertRc4PasswordToKey(password, salt, 0);
-  const cipher = crypto.createDecipheriv("rc4", key, "");
-  const verifier = cipher.update(encryptedVerifier);
+  const stream = rc4(key, Buffer.concat([encryptedVerifier, encryptedVerifierHash]));
+  const verifier = stream.subarray(0, encryptedVerifier.length);
   const hash = crypto.createHash("md5").update(verifier).digest();
-  const verifierHash = Buffer.concat([
-    cipher.update(encryptedVerifierHash),
-    cipher.final(),
-  ]);
+  const verifierHash = stream.subarray(encryptedVerifier.length);
   return verifierHash.equals(hash);
 }
 
@@ -76,13 +93,10 @@ export function verifyRc4CryptoApiPassword(
   encryptedVerifierHash: Buffer
 ): boolean {
   const key = convertRc4CryptoApiPasswordToKey(password, salt, keySize, 0);
-  const cipher = crypto.createDecipheriv("rc4", key, "");
-  const verifier = cipher.update(encryptedVerifier);
+  const stream = rc4(key, Buffer.concat([encryptedVerifier, encryptedVerifierHash]));
+  const verifier = stream.subarray(0, encryptedVerifier.length);
   const hash = crypto.createHash("sha1").update(verifier).digest();
-  const verifierHash = Buffer.concat([
-    cipher.update(encryptedVerifierHash),
-    cipher.final(),
-  ]);
+  const verifierHash = stream.subarray(encryptedVerifier.length);
   return verifierHash.equals(hash);
 }
 
@@ -90,7 +104,7 @@ export function decryptRc4Buffer(
   password: string,
   salt: Buffer,
   input: Buffer,
-  blocksize = 0x200
+  blocksize = 1024
 ): Buffer {
   const outputChunks: Buffer[] = [];
   let block = 0;
@@ -100,7 +114,7 @@ export function decryptRc4Buffer(
     const end = Math.min(start + blocksize, input.length);
     const inputChunk = input.subarray(start, end);
     const key = convertRc4PasswordToKey(password, salt, block);
-    outputChunks.push(decryptRc4Chunk(key, inputChunk));
+    outputChunks.push(rc4(key, inputChunk));
     block += 1;
     start = end;
   }
@@ -113,7 +127,7 @@ export function decryptRc4CryptoApiBuffer(
   salt: Buffer,
   keySize: number,
   input: Buffer,
-  blocksize = 0x200,
+  blocksize = 1024,
   block = 0
 ): Buffer {
   const outputChunks: Buffer[] = [];
@@ -128,7 +142,7 @@ export function decryptRc4CryptoApiBuffer(
       keySize,
       block
     );
-    outputChunks.push(decryptRc4Chunk(key, inputChunk));
+    outputChunks.push(rc4(key, inputChunk));
     block += 1;
     start = end;
   }

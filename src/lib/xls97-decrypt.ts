@@ -7,8 +7,6 @@ import type { CFB$Container } from "cfb";
 import {
   decryptRc4Buffer,
   decryptRc4CryptoApiBuffer,
-  verifyRc4CryptoApiPassword,
-  verifyRc4Password,
 } from "./rc4-decrypt";
 
 const BIFF8 = 1536;
@@ -83,23 +81,6 @@ function prepBlob(buffer: Buffer): CfbBlob {
   const blob = Buffer.from(buffer) as CfbBlob;
   CFB.utils.prep_blob(blob, 0);
   return blob;
-}
-
-function verifyXorPassword(password: string, verificationBytes: number): boolean {
-  let verifier = 0x0000;
-  const passwordArray: number[] = [password.length];
-  for (const ch of password) {
-    passwordArray.push(ch.charCodeAt(0));
-  }
-  passwordArray.reverse();
-
-  for (const passwordByte of passwordArray) {
-    const intermediate1 = (verifier & 0x4000) === 0 ? 0 : 1;
-    const intermediate2 = (verifier * 2) & 0x7fff;
-    verifier = intermediate1 ^ intermediate2 ^ passwordByte;
-  }
-
-  return (verifier ^ 0xce4b) === verificationBytes;
 }
 
 function createXorKeyMethod1(password: string): number {
@@ -427,43 +408,6 @@ function parseEncryptionHeader(
   };
 }
 
-function passwordMatchesEncryption(
-  password: string,
-  encryptionType: XlsEncryptionInfo["encryptionType"],
-  encryption: EncryptionData & {
-    verificationBytes?: number;
-    encryptedVerifier?: Buffer;
-    encryptedVerifierHash?: Buffer;
-  }
-): boolean {
-  if (encryptionType === "xor") {
-    return verifyXorPassword(password, encryption.verificationBytes ?? -1);
-  }
-  if (encryptionType === "rc4" && encryption.salt && encryption.encryptedVerifier) {
-    return verifyRc4Password(
-      password,
-      encryption.salt,
-      encryption.encryptedVerifier,
-      encryption.encryptedVerifierHash!
-    );
-  }
-  if (
-    encryptionType === "rc4_crypto_api" &&
-    encryption.salt &&
-    encryption.encryptedVerifier &&
-    encryption.keySize
-  ) {
-    return verifyRc4CryptoApiPassword(
-      password,
-      encryption.salt,
-      encryption.keySize,
-      encryption.encryptedVerifier,
-      encryption.encryptedVerifierHash!
-    );
-  }
-  return false;
-}
-
 function decryptWorkbookStream(
   currCfb: CFB$Container,
   workbookBlob: Buffer,
@@ -484,23 +428,11 @@ function decryptWorkbookStream(
   if (!info.encrypted) return input;
   if (info.encryptionType === "unsupported") return null;
 
-  const extendedEncryption = encryption as EncryptionData & {
-    verificationBytes?: number;
-    encryptedVerifier?: Buffer;
-    encryptedVerifierHash?: Buffer;
-  };
-
-  const verified = passwordMatchesEncryption(
-    password,
-    info.encryptionType,
-    extendedEncryption
-  );
-
-  if (!verified && info.encryptionType !== "xor") {
+  try {
+    return rebuildWorkbookCfb(currCfb, blob, password, encryption);
+  } catch {
     return null;
   }
-
-  return rebuildWorkbookCfb(currCfb, blob, password, encryption);
 }
 
 export function getXlsEncryptionInfo(input: Buffer): XlsEncryptionInfo {
