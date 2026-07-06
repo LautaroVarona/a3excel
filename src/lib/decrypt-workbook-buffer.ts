@@ -1,33 +1,14 @@
-import { createRequire } from "node:module";
-import path from "node:path";
-
 import * as CFB from "cfb";
 import officeCrypto from "officecrypto-tool";
 
 import { parseWorkbookBuffer } from "./parse-workbook-buffer";
+import {
+  decryptXls97Buffer,
+  xls97DecryptAvailable,
+} from "./xls97-decrypt";
 
 /** Claves habituales en exports .xls de a3ERP (XOR con contraseña vacía o un espacio). */
 const DEFAULT_PASSWORD_CANDIDATES = ["", " ", "velneo", "VELNEO", "a3", "A3"] as const;
-
-type Xls97Module = {
-  decrypt: (
-    currCfb: ReturnType<typeof CFB.read>,
-    blob: Buffer,
-    password: string,
-    input: Buffer
-  ) => Buffer;
-};
-
-const projectRequire = createRequire(
-  path.join(process.cwd(), "package.json")
-);
-
-let xls97Module: Xls97Module | null = null;
-try {
-  xls97Module = projectRequire("./lib/officecrypto/xls97.js") as Xls97Module;
-} catch {
-  xls97Module = null;
-}
 
 export function buildDecryptPasswordCandidates(
   userPassword?: string
@@ -58,37 +39,6 @@ export function isOleXls(buffer: Buffer): boolean {
   );
 }
 
-function decryptXls97WithPassword(
-  input: Buffer,
-  password: string
-): Buffer | null {
-  if (!xls97Module) return null;
-
-  const cfb = CFB.read(input, { type: "buffer" });
-  const workbookEntry =
-    CFB.find(cfb, "Workbook") ?? CFB.find(cfb, "Book");
-  if (!workbookEntry) return null;
-
-  const workbookContent = workbookEntry.content;
-  let workbookBlob: Buffer;
-  if (!Buffer.isBuffer(workbookContent)) {
-    workbookBlob = Buffer.from(workbookContent);
-    CFB.utils.prep_blob(workbookBlob, 0);
-  } else {
-    workbookBlob = workbookContent;
-  }
-
-  try {
-    const output = xls97Module.decrypt(cfb, workbookBlob, password, input);
-    if (!Buffer.isBuffer(output)) {
-      return Buffer.from(output);
-    }
-    return output;
-  } catch {
-    return null;
-  }
-}
-
 function canParseWorkbook(buffer: Buffer, password?: string): boolean {
   try {
     parseWorkbookBuffer(buffer, password);
@@ -115,7 +65,7 @@ async function decryptWithCandidate(
   password: string
 ): Promise<Buffer | null> {
   if (isOleXls(input)) {
-    const xls97Output = decryptXls97WithPassword(input, password);
+    const xls97Output = decryptXls97Buffer(input, password);
     if (xls97Output && isUsableDecryptResult(input, xls97Output, password)) {
       return xls97Output;
     }
@@ -170,7 +120,7 @@ export function getDecryptDiagnostics(input: Buffer): DecryptDiagnostics {
   return {
     encrypted: officeCrypto.isEncrypted(input),
     oleXls: isOleXls(input),
-    xls97ModuleLoaded: Boolean(xls97Module?.decrypt),
+    xls97ModuleLoaded: xls97DecryptAvailable,
     candidatesTried: buildDecryptPasswordCandidates().length,
   };
 }
