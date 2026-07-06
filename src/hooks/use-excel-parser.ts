@@ -27,6 +27,7 @@ export function useExcelParser() {
 
   useEffect(() => {
     let cancelled = false;
+    const jobs = jobsRef.current;
     setEngineState("loading");
     setEngineError(null);
 
@@ -45,14 +46,14 @@ export function useExcelParser() {
         }
 
         if (data.type === "progress") {
-          jobsRef.current.get(data.jobId)?.onProgress(data.progress);
+          jobs.get(data.jobId)?.onProgress(data.progress);
           return;
         }
 
-        const job = jobsRef.current.get(data.jobId);
+        const job = jobs.get(data.jobId);
         if (!job) return;
 
-        jobsRef.current.delete(data.jobId);
+        jobs.delete(data.jobId);
 
         if (data.type === "result") {
           job.resolve(data.data);
@@ -82,7 +83,7 @@ export function useExcelParser() {
       cancelled = true;
       workerRef.current?.terminate();
       workerRef.current = null;
-      jobsRef.current.clear();
+      jobs.clear();
     };
   }, []);
 
