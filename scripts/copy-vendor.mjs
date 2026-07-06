@@ -4,7 +4,7 @@ import { fileURLToPath } from "url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const publicVendorDir = join(root, "public", "vendor");
-const officecryptoVendorDir = join(root, "src", "lib", "vendor", "officecrypto");
+const officecryptoVendorDir = join(root, "lib", "officecrypto");
 const officecryptoSource = join(root, "node_modules", "officecrypto-tool", "src");
 
 mkdirSync(publicVendorDir, { recursive: true });
@@ -34,4 +34,4 @@ for (const file of officecryptoFiles) {
 }
 
 console.log("Vendor copiado: public/vendor/xlsx.full.min.js");
-console.log("Vendor copiado: src/lib/vendor/officecrypto/*");
+console.log("Vendor copiado: lib/officecrypto/*");

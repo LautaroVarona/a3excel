@@ -1,6 +1,5 @@
 import { createRequire } from "node:module";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import * as CFB from "cfb";
 import officeCrypto from "officecrypto-tool";
@@ -19,28 +18,16 @@ type Xls97Module = {
   ) => Buffer;
 };
 
-function loadXls97Module(): Xls97Module | null {
-  const modulePaths = [
-    path.join(process.cwd(), "src/lib/vendor/officecrypto/xls97.js"),
-    path.join(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "vendor/officecrypto/xls97.js"
-    ),
-  ];
+const projectRequire = createRequire(
+  path.join(process.cwd(), "package.json")
+);
 
-  for (const modulePath of modulePaths) {
-    try {
-      const require = createRequire(modulePath);
-      return require("./xls97.js") as Xls97Module;
-    } catch {
-      // Probamos la siguiente ruta.
-    }
-  }
-
-  return null;
+let xls97Module: Xls97Module | null = null;
+try {
+  xls97Module = projectRequire("./lib/officecrypto/xls97.js") as Xls97Module;
+} catch {
+  xls97Module = null;
 }
-
-const xls97Module = loadXls97Module();
 
 export function buildDecryptPasswordCandidates(
   userPassword?: string
