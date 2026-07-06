@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
 
 import { ThemeProvider } from "@/components/theme-provider";
@@ -21,16 +22,6 @@ export const metadata: Metadata = {
     "Herramienta de carga y filtrado de archivos Excel con procesamiento local en el navegador.",
 };
 
-const themeScript = `
-  try {
-    const stored = localStorage.getItem('a3excel-theme');
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    const theme = stored ?? (prefersDark ? 'dark' : 'light');
-    if (theme === 'dark') document.documentElement.classList.add('dark');
-    else document.documentElement.classList.remove('dark');
-  } catch {}
-`;
-
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -38,12 +29,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es" suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
       >
+        <Script id="theme-init" strategy="beforeInteractive">
+          {`try{var s=localStorage.getItem('a3excel-theme');var d=window.matchMedia('(prefers-color-scheme: dark)').matches;var t=s||(d?'dark':'light');document.documentElement.classList.toggle('dark',t==='dark')}catch(e){}`}
+        </Script>
         <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>

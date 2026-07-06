@@ -32,17 +32,9 @@ const PHASE_LABELS: Record<ParsePhase, string> = {
   complete: "Completado",
 };
 
-const ROW_CHUNK_SIZE = 2000;
-
-function normalizeCellValue(value: unknown): string | number | boolean | null {
-  if (value === null || value === undefined || value === "") return null;
-  if (typeof value === "boolean" || typeof value === "number") return value;
-  return String(value);
-}
-
-function yieldToMain(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
+export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+export const PARSE_TIMEOUT_MS = 60_000;
+const VALID_EXTENSIONS = [".xls", ".xlsx"];
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -75,6 +67,47 @@ function emitProgress(
       partial.total,
       elapsedMs
     ),
+  });
+}
+
+export function validateExcelFile(file: File): string | null {
+  if (file.size <= 0) {
+    return "El archivo está vacío.";
+  }
+
+  if (file.size > MAX_FILE_SIZE_BYTES) {
+    return `El archivo supera el límite de ${formatBytes(MAX_FILE_SIZE_BYTES)}.`;
+  }
+
+  const dotIndex = file.name.lastIndexOf(".");
+  if (dotIndex === -1) {
+    return "Formato no válido. Solo se admiten archivos .XLS y .XLSX.";
+  }
+
+  const extension = file.name.slice(dotIndex).toLowerCase();
+  if (!VALID_EXTENSIONS.includes(extension)) {
+    return "Formato no válido. Solo se admiten archivos .XLS y .XLSX.";
+  }
+
+  return null;
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error: unknown) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(message));
+      });
   });
 }
 
@@ -116,12 +149,68 @@ function readFileWithProgress(
   });
 }
 
+function parseBufferInWorker(
+  buffer: ArrayBuffer,
+  file: File,
+  onProgress: (progress: ParseProgress) => void,
+  startTime: number
+): Promise<ParsedExcel> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL("./excel-worker.ts", import.meta.url));
+
+    const cleanup = () => {
+      worker.terminate();
+    };
+
+    worker.onmessage = (event: MessageEvent) => {
+      const data = event.data as
+        | { type: "progress"; progress: ParseProgress }
+        | { type: "result"; data: ParsedExcel }
+        | { type: "error"; message: string };
+
+      if (data.type === "progress") {
+        onProgress(data.progress);
+        return;
+      }
+
+      cleanup();
+      if (data.type === "result") {
+        resolve(data.data);
+        return;
+      }
+
+      reject(new Error(data.message));
+    };
+
+    worker.onerror = () => {
+      cleanup();
+      reject(
+        new Error(
+          "Error al procesar el archivo. Probá con un archivo .xlsx o uno más simple."
+        )
+      );
+    };
+
+    worker.postMessage({
+      type: "parse",
+      buffer,
+      fileName: file.name,
+      fileSize: file.size,
+      startTime,
+    });
+  });
+}
+
 export async function parseExcelFileWithProgress(
   file: File,
   onProgress: (progress: ParseProgress) => void
 ): Promise<ParsedExcel> {
+  const validationError = validateExcelFile(file);
+  if (validationError) {
+    throw new Error(validationError);
+  }
+
   const startTime = Date.now();
-  const XLSX = await import("xlsx");
 
   emitProgress(onProgress, startTime, {
     phase: "reading",
@@ -131,121 +220,16 @@ export async function parseExcelFileWithProgress(
     total: file.size,
   });
 
-  const buffer = await readFileWithProgress(file, onProgress, startTime);
-  await yieldToMain();
-
-  emitProgress(onProgress, startTime, {
-    phase: "parsing",
-    message: "Decodificando estructura del libro Excel…",
-    percent: 30,
-    processed: 0,
-    total: 1,
-  });
-
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
-  const sheetName = workbook.SheetNames[0];
-
-  if (!sheetName) {
-    throw new Error("El archivo no contiene hojas de cálculo.");
-  }
-
-  await yieldToMain();
-
-  emitProgress(onProgress, startTime, {
-    phase: "parsing",
-    message: `Hoja activa: «${sheetName}» — extrayendo celdas…`,
-    percent: 40,
-    processed: 1,
-    total: 1,
-  });
-
-  const worksheet = workbook.Sheets[sheetName];
-  const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(
-    worksheet,
-    { defval: null, raw: false }
-  );
-
-  const totalRows = rawRows.length;
-  const rows: ExcelRow[] = [];
-
-  emitProgress(onProgress, startTime, {
-    phase: "converting",
-    message: `Convirtiendo ${totalRows.toLocaleString("es-ES")} filas a formato tabular…`,
-    percent: 45,
-    processed: 0,
-    total: totalRows,
-  });
-
-  await yieldToMain();
-
-  for (let i = 0; i < totalRows; i += ROW_CHUNK_SIZE) {
-    const end = Math.min(i + ROW_CHUNK_SIZE, totalRows);
-
-    for (let j = i; j < end; j++) {
-      const raw = rawRows[j];
-      const normalized: ExcelRow = {};
-      for (const [key, value] of Object.entries(raw)) {
-        normalized[String(key)] = normalizeCellValue(value);
-      }
-      rows.push(normalized);
-    }
-
-    const processed = end;
-    const percent = 45 + Math.round((processed / Math.max(totalRows, 1)) * 40);
-
-    emitProgress(onProgress, startTime, {
-      phase: "converting",
-      message: `Filas procesadas: ${processed.toLocaleString("es-ES")} / ${totalRows.toLocaleString("es-ES")}`,
-      percent,
-      processed,
-      total: totalRows,
-    });
-
-    await yieldToMain();
-  }
-
-  emitProgress(onProgress, startTime, {
-    phase: "indexing",
-    message: "Detectando columnas…",
-    percent: 88,
-    processed: 0,
-    total: rows.length > 0 ? Object.keys(rows[0]).length : 0,
-  });
-
-  await yieldToMain();
-
-  const columnSet = new Set<string>();
-  for (const row of rows) {
-    for (const key of Object.keys(row)) {
-      columnSet.add(key);
-    }
-  }
-  const columns = Array.from(columnSet);
-
-  emitProgress(onProgress, startTime, {
-    phase: "indexing",
-    message: `${columns.length} columnas detectadas`,
-    percent: 95,
-    processed: columns.length,
-    total: columns.length,
-  });
-
-  await yieldToMain();
-
-  emitProgress(onProgress, startTime, {
-    phase: "complete",
-    message: `Listo — ${totalRows.toLocaleString("es-ES")} filas en «${sheetName}»`,
-    percent: 100,
-    processed: totalRows,
-    total: totalRows,
-  });
-
-  return {
-    sheetName,
-    columns,
-    rows,
-    totalRows,
+  const parseTask = async (): Promise<ParsedExcel> => {
+    const buffer = await readFileWithProgress(file, onProgress, startTime);
+    return parseBufferInWorker(buffer, file, onProgress, startTime);
   };
+
+  return withTimeout(
+    parseTask(),
+    PARSE_TIMEOUT_MS,
+    "El archivo tardó demasiado. Probá con .xlsx o un archivo más simple."
+  );
 }
 
 export function formatCellValue(

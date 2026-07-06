@@ -1,6 +1,7 @@
 "use client";
 
 import { CheckCircle2, Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   PHASE_LABELS,
@@ -18,6 +19,8 @@ const PHASES: ParsePhase[] = [
   "complete",
 ];
 
+const STALL_WARNING_MS = 15_000;
+
 interface ProcessingPanelProps {
   fileName: string;
   progress: ParseProgress;
@@ -25,6 +28,42 @@ interface ProcessingPanelProps {
 
 export function ProcessingPanel({ fileName, progress }: ProcessingPanelProps) {
   const currentIndex = PHASES.indexOf(progress.phase);
+  const [showStallWarning, setShowStallWarning] = useState(false);
+  const lastProgressRef = useRef({
+    percent: progress.percent,
+    phase: progress.phase,
+    updatedAt: Date.now(),
+  });
+
+  useEffect(() => {
+    const last = lastProgressRef.current;
+    if (last.percent !== progress.percent || last.phase !== progress.phase) {
+      lastProgressRef.current = {
+        percent: progress.percent,
+        phase: progress.phase,
+        updatedAt: Date.now(),
+      };
+      setShowStallWarning(false);
+      return;
+    }
+
+    if (progress.phase === "complete") {
+      setShowStallWarning(false);
+      return;
+    }
+
+    const elapsedSinceUpdate = Date.now() - last.updatedAt;
+    if (elapsedSinceUpdate >= STALL_WARNING_MS) {
+      setShowStallWarning(true);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setShowStallWarning(true);
+    }, STALL_WARNING_MS - elapsedSinceUpdate);
+
+    return () => clearTimeout(timer);
+  }, [progress.percent, progress.phase]);
 
   return (
     <div className="flex flex-col gap-6 rounded-sm border border-border bg-card p-6 shadow-sm">
@@ -47,7 +86,6 @@ export function ProcessingPanel({ fileName, progress }: ProcessingPanelProps) {
         </span>
       </div>
 
-      {/* Barra de progreso */}
       <div className="space-y-2">
         <div className="h-2 overflow-hidden rounded-full bg-secondary">
           <div
@@ -85,7 +123,13 @@ export function ProcessingPanel({ fileName, progress }: ProcessingPanelProps) {
         </div>
       </div>
 
-      {/* Pasos */}
+      {showStallWarning && progress.phase !== "complete" && (
+        <p className="rounded-sm border border-border bg-secondary/60 px-3 py-2 text-xs text-muted-foreground">
+          Sigue procesando… si tarda mucho, el formato puede no ser compatible.
+          Probá guardar el archivo como .xlsx.
+        </p>
+      )}
+
       <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
         {PHASES.map((phase, index) => {
           const isDone = index < currentIndex || progress.phase === "complete";

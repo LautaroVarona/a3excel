@@ -44,6 +44,7 @@ import {
   type ParsedExcel,
   formatCellValue,
   parseExcelFileWithProgress,
+  validateExcelFile,
 } from "@/lib/excel";
 import { cn } from "@/lib/utils";
 
@@ -100,11 +101,9 @@ export function ExcelViewer() {
   });
 
   const processFile = useCallback(async (file: File) => {
-    const validExtensions = [".xls", ".xlsx"];
-    const extension = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
-
-    if (!validExtensions.includes(extension)) {
-      setError("Formato no válido. Solo se admiten archivos .XLS y .XLSX.");
+    const validationError = validateExcelFile(file);
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
