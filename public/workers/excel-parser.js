@@ -216,6 +216,13 @@ async function parseBuffer(buffer, jobId, startTime, password) {
     }
   }
   const columns = Array.from(columnSet);
+  const filledRows = rows.map((row) => {
+    const filled = {};
+    for (const column of columns) {
+      filled[column] = row[column] ?? null;
+    }
+    return filled;
+  });
 
   emitProgress(jobId, startTime, {
     phase: "complete",
@@ -227,7 +234,7 @@ async function parseBuffer(buffer, jobId, startTime, password) {
     total: totalRows,
   });
 
-  return { sheetName, columns, rows, totalRows, metadata };
+  return { sheetName, columns, rows: filledRows, totalRows, metadata };
 }
 
 self.onmessage = async (event) => {

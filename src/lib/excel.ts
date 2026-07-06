@@ -256,9 +256,9 @@ export async function parseExcelFileWithProgress(
 }
 
 export function formatCellValue(
-  value: string | number | boolean | null
+  value: string | number | boolean | null | undefined
 ): string {
-  if (value === null) return "—";
+  if (value == null || value === "") return "—";
   if (typeof value === "boolean") return value ? "Sí" : "No";
   return String(value);
 }

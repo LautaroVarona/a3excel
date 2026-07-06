@@ -104,10 +104,19 @@ export function parseWorkbookBuffer(
     }
   }
 
+  const columns = Array.from(columnSet);
+  const filledRows: ExcelRow[] = rows.map((row) => {
+    const filled: ExcelRow = {};
+    for (const column of columns) {
+      filled[column] = row[column] ?? null;
+    }
+    return filled;
+  });
+
   return {
     sheetName,
-    columns: Array.from(columnSet),
-    rows,
+    columns,
+    rows: filledRows,
     totalRows,
     metadata,
   };

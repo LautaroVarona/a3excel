@@ -45,7 +45,7 @@ function decryptXls97WithPassword(
     CFB.find(cfb, "Workbook") ?? CFB.find(cfb, "Book");
   if (!workbookEntry) return null;
 
-  let workbookContent = workbookEntry.content;
+  const workbookContent = workbookEntry.content;
   let workbookBlob: Buffer;
   if (!Buffer.isBuffer(workbookContent)) {
     workbookBlob = Buffer.from(workbookContent);
