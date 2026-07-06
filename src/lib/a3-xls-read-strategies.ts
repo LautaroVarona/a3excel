@@ -46,3 +46,17 @@ export function needsA3ServerParse(
 ): boolean {
   return isLikelyEncryptedA3Xls(fileName, byteLength) && !hasYmantLayout;
 }
+
+/** Reexports vía Excel/SheetJS suelen quedar en este rango (inválidos para A3). */
+export const A3_BROKEN_XLS_MAX_BYTES = 45_000;
+
+export function isBrokenA3Reexport(
+  fileName: string | null | undefined,
+  byteLength: number
+): boolean {
+  return (
+    (fileName?.toLowerCase().endsWith(".xls") ?? false) &&
+    byteLength > 0 &&
+    byteLength < A3_BROKEN_XLS_MAX_BYTES
+  );
+}

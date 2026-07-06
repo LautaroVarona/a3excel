@@ -78,23 +78,28 @@ export async function exportParsedExcelToFile(
 ): Promise<void> {
   const hasYmantLayout = data.layout?.kind === "ymant";
   const sourceBuffer = options?.sourceBuffer;
+  const isXlsSource = options?.sourceFileName?.toLowerCase().endsWith(".xls") ?? false;
 
-  if (
-    isLikelyEncryptedA3Xls(options?.sourceFileName, sourceBuffer?.byteLength ?? 0) &&
-    !hasYmantLayout
-  ) {
+  if (isXlsSource && !hasYmantLayout) {
     throw new Error(
-      "No se detectó el formato YMANT (77) de A3NOM. " +
-        "Volvé a importar el .XLS original exportado por A3 antes de editar."
+      "Este .XLS no tiene el formato interno de A3NOM (YMANT 77). " +
+        "Importá el archivo original exportado por A3 (≈245 KB), no una copia regrabada en Excel."
     );
   }
 
-  if (hasYmantLayout && sourceBuffer) {
+  if (isXlsSource || hasYmantLayout) {
+    if (!hasYmantLayout || !sourceBuffer) {
+      throw new Error(
+        "No se puede exportar: falta el archivo original de A3 en memoria. " +
+          "Volvé a importar el .XLS original."
+      );
+    }
+
     await exportYmantViaServer(
       data,
       sourceBuffer,
-      options.sourceFileName,
-      options.password
+      options?.sourceFileName,
+      options?.password
     );
     return;
   }
@@ -197,7 +202,8 @@ export async function exportParsedExcelToFile(
     (data.sheetName || "Datos").replace(/[:\\/?*[\]]/g, " ").trim().slice(0, 31)
   );
 
-  XLSX.writeFile(workbook, buildEditableExportName(options?.sourceFileName), {
-    bookType: "biff8",
+  XLSX.writeFile(workbook, buildEditableExportName(options?.sourceFileName).replace(/\.xls$/i, ".xlsx"), {
+    bookType: "xlsx",
+    compression: true,
   });
 }

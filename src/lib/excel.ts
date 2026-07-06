@@ -4,7 +4,7 @@ import {
   PARSE_TIMEOUT_MS,
   PHASE_LABELS,
 } from "./excel-types";
-import { needsA3ServerParse } from "./a3-xls-read-strategies";
+import { needsA3ServerParse, isLikelyEncryptedA3Xls } from "./a3-xls-read-strategies";
 
 const SERVER_PARSE_TIMEOUT_MS = 120_000;
 
@@ -256,6 +256,11 @@ export async function parseExcelFileWithProgress(
 
   const parseTask = async (): Promise<ParseExcelResult> => {
     const buffer = await readFileWithProgress(file, onProgress, startTime);
+
+    if (isLikelyEncryptedA3Xls(file.name, buffer.byteLength)) {
+      return parseViaLocalServer(file, onProgress, startTime, password);
+    }
+
     const workerBuffer = buffer.slice(0);
 
     try {

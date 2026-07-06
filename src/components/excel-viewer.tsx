@@ -11,12 +11,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useExcelParser } from "@/hooks/use-excel-parser";
 import {
-  type ParseProgress,
+  validateExcelFile,
   type ParsedExcel,
+  type ParseProgress,
   flushUI,
   parseExcelFileWithProgress,
-  validateExcelFile,
 } from "@/lib/excel";
+import { isBrokenA3Reexport } from "@/lib/a3-xls-read-strategies";
 import { cn } from "@/lib/utils";
 
 const INITIAL_PROGRESS: ParseProgress = {
@@ -89,6 +90,16 @@ export function ExcelViewer() {
           parseInWorker,
           filePassword.trim() || undefined
         );
+
+        if (
+          isBrokenA3Reexport(file.name, file.size) &&
+          result.data.layout?.kind !== "ymant"
+        ) {
+          throw new Error(
+            "Este .XLS (~33 KB) no es un export válido de A3NOM. " +
+              "Importá el archivo original de A3 (≈245 KB). No regrabes en Excel."
+          );
+        }
 
         setProgress({
           phase: "complete",
@@ -315,8 +326,25 @@ export function ExcelViewer() {
           </div>
         )}
 
-        {parsedData && !isProcessing && (
-          <ExcelDataTable
+      {parsedData && !isProcessing && (
+        <div className="rounded-sm border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
+          {parsedData.layout?.kind === "ymant" ? (
+            <>
+              Editá los importes en la tabla y exportá directo a A3.{" "}
+              <strong>No abras el .XLS en Excel</strong> — Excel destruye el
+              formato interno que A3NOM necesita.
+            </>
+          ) : (
+            <>
+              Este archivo no se reconoció como export YMANT de A3. Para
+              importar de vuelta en A3NOM usá el .XLS original (~245 KB).
+            </>
+          )}
+        </div>
+      )}
+
+      {parsedData && !isProcessing && (
+        <ExcelDataTable
             data={parsedData}
             sourceFileName={fileName}
             sourceBuffer={sourceBuffer}

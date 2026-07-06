@@ -6,6 +6,7 @@ import {
 } from "@/lib/excel-com";
 import {
   getDecryptDiagnostics,
+  isOleXls,
   tryDecryptWorkbookBuffer,
 } from "@/lib/decrypt-workbook-buffer";
 import { parseWorkbookBuffer } from "@/lib/parse-workbook-buffer";
@@ -64,11 +65,25 @@ async function resolveReadableBuffer(
   throw error;
 }
 
-function withSourceBuffer(parsed: ReturnType<typeof parseWorkbookBuffer>, buffer: Buffer) {
+function withSourceBuffer(
+  parsed: ReturnType<typeof parseWorkbookBuffer>,
+  originalInput: Buffer
+) {
   return {
     ...parsed,
-    sourceBufferBase64: buffer.toString("base64"),
+    sourceBufferBase64: originalInput.toString("base64"),
   };
+}
+
+async function parseXlsBuffer(input: Buffer, password?: string) {
+  if (isOleXls(input)) {
+    const decrypted = await tryDecryptWorkbookBuffer(input, password);
+    if (decrypted) {
+      return parseWorkbookBuffer(decrypted, password);
+    }
+  }
+
+  return parseWorkbookBuffer(input, password);
 }
 
 export async function POST(request: Request) {
@@ -112,10 +127,31 @@ export async function POST(request: Request) {
 
     const input = Buffer.from(await file.arrayBuffer());
 
+    if (extension === ".xls") {
+      try {
+        const parsed = await parseXlsBuffer(input, password);
+        return NextResponse.json(withSourceBuffer(parsed, input));
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Error al leer el archivo.";
+
+        if (!isEncryptionError(message)) {
+          throw error;
+        }
+
+        const readable = await resolveReadableBuffer(input, extension, password);
+        return NextResponse.json(
+          withSourceBuffer(parseWorkbookBuffer(readable, password), input)
+        );
+      }
+    }
+
     if (officeCrypto.isEncrypted(input)) {
       const decrypted = await tryDecryptWorkbookBuffer(input, password);
       if (decrypted) {
-        return NextResponse.json(withSourceBuffer(parseWorkbookBuffer(decrypted, password), decrypted));
+        return NextResponse.json(
+          withSourceBuffer(parseWorkbookBuffer(decrypted, password), input)
+        );
       }
     }
 
@@ -130,7 +166,9 @@ export async function POST(request: Request) {
       }
 
       const readable = await resolveReadableBuffer(input, extension, password);
-      return NextResponse.json(withSourceBuffer(parseWorkbookBuffer(readable, password), readable));
+      return NextResponse.json(
+        withSourceBuffer(parseWorkbookBuffer(readable, password), input)
+      );
     }
   } catch (error) {
     const message =
