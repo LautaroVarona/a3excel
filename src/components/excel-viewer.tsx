@@ -310,6 +310,7 @@ export function ExcelViewer() {
         {parsedData && !isProcessing && (
           <ExcelDataTable
             data={parsedData}
+            sourceFileName={fileName}
             onUploadAnother={() => fileInputRef.current?.click()}
           />
         )}

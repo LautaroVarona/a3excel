@@ -10,13 +10,14 @@ import {
   type GridApi,
   type GridReadyEvent,
 } from "ag-grid-community";
-import { Upload } from "lucide-react";
+import { Download, Upload } from "lucide-react";
 
 import { ExcelAutoFilter } from "@/components/grid/excel-auto-filter";
 import { ExcelExportHeader } from "@/components/excel-export-header";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/components/theme-provider";
 import { type ParsedExcel, formatCellValue } from "@/lib/excel";
+import { exportParsedExcelToFile } from "@/lib/export-parsed-excel";
 import { cn } from "@/lib/utils";
 
 import "ag-grid-community/styles/ag-grid.css";
@@ -26,12 +27,19 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 
 interface ExcelDataTableProps {
   data: ParsedExcel;
+  sourceFileName?: string | null;
   onUploadAnother: () => void;
 }
 
-export function ExcelDataTable({ data, onUploadAnother }: ExcelDataTableProps) {
+export function ExcelDataTable({
+  data,
+  sourceFileName,
+  onUploadAnother,
+}: ExcelDataTableProps) {
   const { theme } = useTheme();
   const [filteredCount, setFilteredCount] = useState(data.totalRows);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const defaultColDef = useMemo<ColDef>(
     () => ({
@@ -75,6 +83,22 @@ export function ExcelDataTable({ data, onUploadAnother }: ExcelDataTableProps) {
     [updateFilteredCount]
   );
 
+  const handleExport = useCallback(async () => {
+    setExportError(null);
+    setIsExporting(true);
+    try {
+      await exportParsedExcelToFile(data, { sourceFileName });
+    } catch (err) {
+      setExportError(
+        err instanceof Error
+          ? err.message
+          : "No se pudo generar el archivo Excel."
+      );
+    } finally {
+      setIsExporting(false);
+    }
+  }, [data, sourceFileName]);
+
   return (
     <div className="flex flex-col gap-4">
       <ExcelExportHeader metadata={data.metadata} />
@@ -99,11 +123,28 @@ export function ExcelDataTable({ data, onUploadAnother }: ExcelDataTableProps) {
           </span>
         </div>
 
-        <Button variant="outline" size="sm" onClick={onUploadAnother}>
-          <Upload className="h-3.5 w-3.5" />
-          Otro archivo
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => void handleExport()}
+            disabled={isExporting}
+          >
+            <Download className="h-3.5 w-3.5" />
+            {isExporting ? "Exportando…" : "Exportar Excel"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={onUploadAnother}>
+            <Upload className="h-3.5 w-3.5" />
+            Otro archivo
+          </Button>
+        </div>
       </div>
+
+      {exportError && (
+        <div className="rounded-sm border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {exportError}
+        </div>
+      )}
 
       <div
         className={cn(
