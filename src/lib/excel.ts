@@ -98,12 +98,24 @@ async function parseViaLocalServer(
       signal: controller.signal,
     });
 
-    const payload = (await response.json()) as ParsedExcel & { error?: string };
+    const payload = (await response.json()) as ParsedExcel & {
+      error?: string;
+      debug?: {
+        encrypted: boolean;
+        oleXls: boolean;
+        xls97ModuleLoaded: boolean;
+        candidatesTried: number;
+      };
+    };
 
     if (!response.ok) {
+      const debugHint =
+        payload.debug && typeof payload.debug === "object"
+          ? ` (${JSON.stringify(payload.debug)})`
+          : "";
       throw new Error(
-        payload.error ||
-          "No se pudo abrir el archivo con Excel en esta computadora."
+        (payload.error ||
+          "No se pudo abrir el archivo con Excel en esta computadora.") + debugHint
       );
     }
 

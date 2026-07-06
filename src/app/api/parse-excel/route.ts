@@ -4,12 +4,17 @@ import {
   canUseExcelCom,
   convertEncryptedWorkbookViaExcel,
 } from "@/lib/excel-com";
-import { tryDecryptWorkbookBuffer } from "@/lib/decrypt-workbook-buffer";
+import {
+  getDecryptDiagnostics,
+  tryDecryptWorkbookBuffer,
+} from "@/lib/decrypt-workbook-buffer";
 import { parseWorkbookBuffer } from "@/lib/parse-workbook-buffer";
 import { MAX_FILE_SIZE_BYTES } from "@/lib/excel-types";
+import officeCrypto from "officecrypto-tool";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const VALID_EXTENSIONS = [".xls", ".xlsx"];
 
@@ -47,12 +52,16 @@ async function resolveReadableBuffer(
     return convertEncryptedWorkbookViaExcel(input, extension);
   }
 
-  throw new Error(
+  const debug = getDecryptDiagnostics(input);
+  const error = new Error(
     password
       ? "La contraseña no es válida o el cifrado no es compatible con este entorno."
       : "Este archivo está cifrado. Ingresá la contraseña de apertura en el campo inferior, " +
           "o guardá una copia .xlsx sin protección desde Excel."
-  );
+  ) as Error & { debug?: ReturnType<typeof getDecryptDiagnostics> };
+
+  error.debug = debug;
+  throw error;
 }
 
 export async function POST(request: Request) {
@@ -96,6 +105,13 @@ export async function POST(request: Request) {
 
     const input = Buffer.from(await file.arrayBuffer());
 
+    if (officeCrypto.isEncrypted(input)) {
+      const decrypted = await tryDecryptWorkbookBuffer(input, password);
+      if (decrypted) {
+        return NextResponse.json(parseWorkbookBuffer(decrypted, password));
+      }
+    }
+
     try {
       return NextResponse.json(parseWorkbookBuffer(input, password));
     } catch (error) {
@@ -116,7 +132,11 @@ export async function POST(request: Request) {
         : "No se pudo procesar el archivo Excel.";
 
     const status = message.includes("requiere Microsoft Excel") ? 501 : 422;
+    const debug =
+      error instanceof Error && "debug" in error && error.debug
+        ? { debug: error.debug }
+        : {};
 
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json({ error: message, ...debug }, { status });
   }
 }
