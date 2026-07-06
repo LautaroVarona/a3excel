@@ -3,7 +3,7 @@ import {
   patchBiffWorkbookStream,
 } from "./biff-patch";
 import { buildDecryptPasswordCandidates } from "./decrypt-workbook-buffer";
-import type { ParsedExcel } from "./excel-types";
+import { isA3NativeExportLayout } from "./is-a3-native-export";
 import {
   exportPreservingXlsBuffer,
   resolvePlainWorkbookForExport,
@@ -15,8 +15,10 @@ export function exportYmantPreservingBuffer(
   password?: string
 ): Buffer {
   const layout = data.layout;
-  if (!layout || layout.kind !== "ymant") {
-    throw new Error("Solo se admite exportación preservada para formato YMANT.");
+  if (!isA3NativeExportLayout(layout)) {
+    throw new Error(
+      "Solo se admite exportación preservada para exports nativos de A3."
+    );
   }
 
   const candidates = buildDecryptPasswordCandidates(password);

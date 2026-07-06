@@ -18,6 +18,7 @@ import {
   parseExcelFileWithProgress,
 } from "@/lib/excel";
 import { isBrokenA3Reexport } from "@/lib/a3-xls-read-strategies";
+import { isA3NativeExportLayout } from "@/lib/is-a3-native-export";
 import { cn } from "@/lib/utils";
 
 const INITIAL_PROGRESS: ParseProgress = {
@@ -93,7 +94,7 @@ export function ExcelViewer() {
 
         if (
           isBrokenA3Reexport(file.name, file.size) &&
-          result.data.layout?.kind !== "ymant"
+          !isA3NativeExportLayout(result.data.layout)
         ) {
           throw new Error(
             "Este .XLS (~33 KB) no es un export válido de A3NOM. " +
@@ -328,7 +329,7 @@ export function ExcelViewer() {
 
       {parsedData && !isProcessing && (
         <div className="rounded-sm border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
-          {parsedData.layout?.kind === "ymant" ? (
+          {isA3NativeExportLayout(parsedData.layout) ? (
             <>
               Descargá el <strong>.xlsx para Excel</strong>, editá ahí, subí el
               archivo editado y generá el <strong>.XLS para A3</strong>.{" "}
@@ -337,7 +338,7 @@ export function ExcelViewer() {
             </>
           ) : (
             <>
-              Este archivo no se reconoció como export YMANT de A3
+              Este archivo no se reconoció como export nativo de A3
               {fileName?.toLowerCase().endsWith(".xls") &&
               sourceBuffer &&
               sourceBuffer.byteLength >= 80_000

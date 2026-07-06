@@ -5,10 +5,11 @@ import {
   PHASE_LABELS,
 } from "./excel-types";
 import { needsA3ServerParse, isLikelyEncryptedA3Xls } from "./a3-xls-read-strategies";
+import { isA3NativeExportLayout } from "./is-a3-native-export";
 
 const SERVER_PARSE_TIMEOUT_MS = 120_000;
 
-export type { ExcelRow, ExcelExportMetadata, ParsePhase, ParseProgress, ParsedExcel, A3YmantLayout } from "./excel-types";
+export type { ExcelRow, ExcelExportMetadata, ParsePhase, ParseProgress, ParsedExcel, A3ExportLayout, A3YmantLayout } from "./excel-types";
 export { MAX_FILE_SIZE_BYTES, PARSE_TIMEOUT_MS, PHASE_LABELS };
 
 export interface ParseExcelResult {
@@ -271,7 +272,7 @@ export async function parseExcelFileWithProgress(
         password
       );
 
-      if (needsA3ServerParse(file.name, buffer.byteLength, data.layout?.kind === "ymant")) {
+      if (needsA3ServerParse(file.name, buffer.byteLength, isA3NativeExportLayout(data.layout))) {
         return parseViaLocalServer(file, onProgress, startTime, password);
       }
 

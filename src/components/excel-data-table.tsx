@@ -16,11 +16,12 @@ import { ExcelAutoFilter } from "@/components/grid/excel-auto-filter";
 import { ExcelExportHeader } from "@/components/excel-export-header";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/components/theme-provider";
+import { isA3NativeExportLayout } from "@/lib/is-a3-native-export";
 import { type ParsedExcel, formatCellValue } from "@/lib/excel";
 import { exportForExcelEditing } from "@/lib/export-for-excel-editing";
 import { exportForA3Import } from "@/lib/export-parsed-excel";
 import {
-  parseEditedYmantRows,
+  parseEditedA3Rows,
   resolveLayoutFromEditedFile,
 } from "@/lib/merge-edited-excel";
 import { cn } from "@/lib/utils";
@@ -57,7 +58,7 @@ export function ExcelDataTable({
   const [exportError, setExportError] = useState<string | null>(null);
   const [importNotice, setImportNotice] = useState<string | null>(null);
 
-  const isYmant = data.layout?.kind === "ymant";
+  const isA3Export = isA3NativeExportLayout(data.layout);
 
   const defaultColDef = useMemo<ColDef>(
     () => ({
@@ -141,7 +142,7 @@ export function ExcelDataTable({
     async (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
       event.target.value = "";
-      if (!file || !isYmant || !data.layout) return;
+      if (!file || !isA3Export || !data.layout) return;
 
       setExportError(null);
       setImportNotice(null);
@@ -149,12 +150,9 @@ export function ExcelDataTable({
 
       try {
         const buffer = await file.arrayBuffer();
-        const layout = resolveLayoutFromEditedFile(
-          buffer,
-          data.layout.kind === "ymant" ? data.layout : undefined
-        );
+        const layout = resolveLayoutFromEditedFile(buffer, data.layout);
         const columns = Object.keys(layout.columnIndices);
-        const rows = parseEditedYmantRows(buffer, layout, columns);
+        const rows = parseEditedA3Rows(buffer, layout, columns);
 
         onDataUpdated({
           ...data,
@@ -179,7 +177,7 @@ export function ExcelDataTable({
         setIsImportingEdited(false);
       }
     },
-    [data, isYmant, onDataUpdated]
+    [data, isA3Export, onDataUpdated]
   );
 
   const exportBusy = isExportingExcel || isExportingA3 || isImportingEdited;
@@ -188,13 +186,13 @@ export function ExcelDataTable({
     <div className="flex flex-col gap-4">
       <ExcelExportHeader metadata={data.metadata} />
 
-      {isYmant && (
+      {isA3Export && (
         <div className="rounded-sm border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
           <p className="font-medium text-foreground">Flujo con Excel de escritorio</p>
           <ol className="mt-2 list-decimal space-y-1 pl-5">
             <li>
-              <strong>Descargar para Excel</strong> — .xlsx con filtros y la misma
-              disposición que A3 (incluye código de control en B8).
+              <strong>Descargar para Excel</strong> — .xlsx con filtros, conservando
+              la misma disposición del export original (cabecera y metadatos).
             </li>
             <li>Editá y filtrá en Excel. Guardá como .xlsx (no reordenes filas ni columnas).</li>
             <li>
@@ -227,15 +225,15 @@ export function ExcelDataTable({
             Columnas:{" "}
             <span className="text-foreground">{data.columns.length}</span>
           </span>
-          {isYmant && (
+          {isA3Export && (
             <span className="rounded-sm border border-foreground/20 px-2 py-0.5 text-foreground">
-              Formato A3 YMANT (77)
+              Export nativo A3
             </span>
           )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {isYmant && (
+          {isA3Export && (
             <>
               <Button
                 variant="outline"
@@ -266,7 +264,7 @@ export function ExcelDataTable({
               </Button>
             </>
           )}
-          {!isYmant && (
+          {!isA3Export && (
             <Button
               variant="default"
               size="sm"

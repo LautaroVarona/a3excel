@@ -1,10 +1,11 @@
 import type { WorkSheet } from "xlsx";
 
+import type { ExcelExportMetadata } from "./excel-types";
+import { extractA3Metadata as extractFromLayout } from "./a3-workbook-layout";
 import {
   A3_METADATA_CELLS,
   DEFAULT_A3_SECTION_TITLE,
 } from "./excel-parse-constants";
-import type { ExcelExportMetadata } from "./excel-types";
 
 function readCellDisplay(worksheet: WorkSheet, address: string): string | null {
   const cell = worksheet[address];
@@ -22,7 +23,7 @@ function readCellDisplay(worksheet: WorkSheet, address: string): string | null {
   return String(value);
 }
 
-export function extractA3Metadata(worksheet: WorkSheet): ExcelExportMetadata {
+function extractLegacyMetadata(worksheet: WorkSheet): ExcelExportMetadata {
   return {
     companyCode: readCellDisplay(worksheet, A3_METADATA_CELLS.companyCode),
     companyName: readCellDisplay(worksheet, A3_METADATA_CELLS.companyName),
@@ -32,6 +33,23 @@ export function extractA3Metadata(worksheet: WorkSheet): ExcelExportMetadata {
       readCellDisplay(worksheet, A3_METADATA_CELLS.sectionTitle) ??
       DEFAULT_A3_SECTION_TITLE,
   };
+}
+
+export function extractA3Metadata(worksheet: WorkSheet): ExcelExportMetadata {
+  const discovered = extractFromLayout(worksheet);
+  if (
+    discovered.companyCode ||
+    discovered.companyName ||
+    discovered.selection ||
+    discovered.exportDate
+  ) {
+    return {
+      ...discovered,
+      sectionTitle: discovered.sectionTitle ?? DEFAULT_A3_SECTION_TITLE,
+    };
+  }
+
+  return extractLegacyMetadata(worksheet);
 }
 
 export function hasA3Metadata(metadata: ExcelExportMetadata): boolean {

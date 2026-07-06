@@ -25,18 +25,28 @@ export interface ExcelExportMetadata {
   sectionTitle: string | null;
 }
 
-export interface A3YmantLayout {
-  kind: "ymant";
+export interface A3PreambleCell {
+  col: number;
+  row: number;
+  text: string;
+}
+
+/** Layout descubierto de un export nativo A3NOM (.XLS cifrado u homólogo). */
+export interface A3ExportLayout {
+  kind: "a3-export";
   controlCode: string;
-  /** Columna 0-based del código de control (A3 usa A8 o B8 según export). */
-  controlCodeColIndex?: number;
-  /** Fila 0-based del código de control (fila 8 en Excel = 7). */
-  controlCodeRowIndex?: number;
+  controlCodeColIndex: number;
+  controlCodeRowIndex: number;
   headerRow1Based: number;
   dataStartRow1Based: number;
   /** Etiqueta de columna → índice de columna 0-based en Excel. */
   columnIndices: Record<string, number>;
+  /** Bloque superior del export (metadatos, etiquetas) tal como vino del archivo. */
+  preambleCells?: A3PreambleCell[];
 }
+
+/** @deprecated Usar A3ExportLayout */
+export type A3YmantLayout = A3ExportLayout;
 
 export interface ParsedExcel {
   sheetName: string;
@@ -46,8 +56,8 @@ export interface ParsedExcel {
   metadata: ExcelExportMetadata;
   /** Snapshot inicial para detectar cambios al exportar. */
   originalRows?: ExcelRow[];
-  /** Presente en exports A3NOM formato 77 (YMANT). */
-  layout?: A3YmantLayout;
+  /** Presente cuando el archivo coincide con un export nativo de A3. */
+  layout?: A3ExportLayout;
 }
 
 export const PHASE_LABELS: Record<ParsePhase, string> = {

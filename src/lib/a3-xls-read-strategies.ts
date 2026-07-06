@@ -26,7 +26,7 @@ export function buildXlsReadPasswordStrategies(
   return strategies;
 }
 
-/** Exports A3NOM YMANT cifrados suelen superar este tamaño. */
+/** Exports .XLS cifrados de A3NOM suelen superar este tamaño. */
 export const A3_ENCRYPTED_XLS_MIN_BYTES = 80_000;
 
 export function isLikelyEncryptedA3Xls(
@@ -42,9 +42,9 @@ export function isLikelyEncryptedA3Xls(
 export function needsA3ServerParse(
   fileName: string | null | undefined,
   byteLength: number,
-  hasYmantLayout: boolean
+  hasA3NativeLayout: boolean
 ): boolean {
-  return isLikelyEncryptedA3Xls(fileName, byteLength) && !hasYmantLayout;
+  return isLikelyEncryptedA3Xls(fileName, byteLength) && !hasA3NativeLayout;
 }
 
 /** Reexports vía Excel/SheetJS suelen quedar en este rango (inválidos para A3). */

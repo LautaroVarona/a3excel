@@ -2,199 +2,18 @@
 
 const ROW_CHUNK_SIZE = 500;
 const MAX_ROWS = 50_000;
-/** Índice 0-based de la fila de encabezados (fila 8 en Excel). */
+/** Índice 0-based de fila de encabezados en exports genéricos (fallback). */
 const EXCEL_HEADER_ROW_INDEX = 7;
-
-const A3_YMANT_CONTROL_CELL = "B8";
-const CONTROL_CODE_ROW_INDEX = 7;
-const CONTROL_CODE_PATTERN = /^077\d+/;
-const CONTROL_CODE_LOOSE_PATTERN = /^077\d+.*\bCT\s+1/i;
-
-function normalizeAccents(value) {
-  return value.normalize("NFD").replace(/\p{M}/gu, "");
-}
-
-function isYmantControlCode(value) {
-  if (!value) return false;
-  const text = value.trim();
-  if (CONTROL_CODE_PATTERN.test(text)) return true;
-  if (CONTROL_CODE_LOOSE_PATTERN.test(text)) return true;
-  return false;
-}
-
-function isYmantHeaderLabel(value) {
-  if (!value) return false;
-  const text = normalizeAccents(value.trim());
-  return /^codigo\b/i.test(text) || /^cod\b\.?/i.test(text);
-}
-
-function readCellDisplay(worksheet, address) {
-  const cell = worksheet[address];
-  if (!cell) return null;
-
-  if (cell.w != null && cell.w !== "") {
-    return String(cell.w);
-  }
-
-  const value = cell.v;
-  if (value === null || value === undefined || value === "") return null;
-  if (value instanceof Date) {
-    return value.toLocaleDateString("es-ES");
-  }
-  return String(value);
-}
-
-function readCellAt(worksheet, colIndex, rowIndex) {
-  const address = XLSX.utils.encode_cell({ c: colIndex, r: rowIndex });
-  return readCellDisplay(worksheet, address);
-}
-
-function detectYmantControlCode(worksheet) {
-  const preferred = readCellDisplay(worksheet, A3_YMANT_CONTROL_CELL);
-  if (isYmantControlCode(preferred)) {
-    return {
-      controlCode: preferred.trim(),
-      controlCodeColIndex: 1,
-      controlCodeRowIndex: CONTROL_CODE_ROW_INDEX,
-    };
-  }
-
-  for (let rowIndex = CONTROL_CODE_ROW_INDEX - 1; rowIndex <= CONTROL_CODE_ROW_INDEX + 1; rowIndex++) {
-    for (let colIndex = 0; colIndex <= 4; colIndex++) {
-      const value = readCellAt(worksheet, colIndex, rowIndex);
-      if (!isYmantControlCode(value)) continue;
-      return {
-        controlCode: value.trim(),
-        controlCodeColIndex: colIndex,
-        controlCodeRowIndex: rowIndex,
-      };
-    }
-  }
-
-  return null;
-}
-
-function findYmantHeaderRow(worksheet) {
-  for (let rowIndex = CONTROL_CODE_ROW_INDEX; rowIndex <= 30; rowIndex++) {
-    for (let colIndex = 0; colIndex <= 5; colIndex++) {
-      const label = readCellAt(worksheet, colIndex, rowIndex);
-      if (isYmantHeaderLabel(label)) {
-        return rowIndex;
-      }
-    }
-  }
-  return null;
-}
-
-function parseMaxCol(ref) {
-  const match = ref.match(/:([A-Z]+)(\d+)$/i);
-  if (!match) return 120;
-  const letters = match[1].toUpperCase();
-  let col = 0;
-  for (let i = 0; i < letters.length; i++) {
-    col = col * 26 + (letters.charCodeAt(i) - 64);
-  }
-  return col - 1;
-}
-
-function detectYmantLayout(worksheet) {
-  const control = detectYmantControlCode(worksheet);
-  if (!control) return null;
-
-  const headerRowIndex = findYmantHeaderRow(worksheet);
-  if (headerRowIndex === null) return null;
-
-  const maxCol = worksheet["!ref"] ? parseMaxCol(worksheet["!ref"]) : 120;
-  const columnIndices = {};
-
-  for (let colIndex = 0; colIndex <= maxCol; colIndex++) {
-    const header = readCellAt(worksheet, colIndex, headerRowIndex);
-    if (!header) continue;
-    const key = header.trim();
-    if (!key || isYmantControlCode(key)) continue;
-    columnIndices[key] = colIndex;
-  }
-
-  const columns = Object.keys(columnIndices);
-  if (columns.length === 0) return null;
-
-  return {
-    kind: "ymant",
-    controlCode: control.controlCode,
-    controlCodeColIndex: control.controlCodeColIndex,
-    controlCodeRowIndex: control.controlCodeRowIndex,
-    headerRow1Based: headerRowIndex + 1,
-    dataStartRow1Based: headerRowIndex + 2,
-    columnIndices,
-  };
-}
-
-function extractYmantMetadata(worksheet) {
-  return {
-    companyCode: readCellAt(worksheet, 3, 8),
-    companyName: readCellAt(worksheet, 4, 8),
-    selection: readCellAt(worksheet, 4, 9),
-    exportDate: readCellAt(worksheet, 3, 10),
-    sectionTitle: readCellAt(worksheet, 1, 11),
-  };
-}
-
-function parseYmantWorksheet(worksheet, layout, sheetName) {
-  const columns = Object.keys(layout.columnIndices);
-  const metadata = extractYmantMetadata(worksheet);
-  const dataStartIndex = layout.dataStartRow1Based - 1;
-  const maxRow = dataStartIndex + MAX_ROWS;
-  const rows = [];
-
-  for (let rowIndex = dataStartIndex; rowIndex < maxRow; rowIndex++) {
-    const row = {};
-    let hasValue = false;
-
-    for (const column of columns) {
-      const colIndex = layout.columnIndices[column];
-      const raw = readCellAt(worksheet, colIndex, rowIndex);
-      const value = normalizeCellValue(raw);
-      row[column] = value;
-      if (value !== null) hasValue = true;
-    }
-
-    if (hasValue) {
-      rows.push(row);
-    } else if (rows.length > 0) {
-      break;
-    }
-  }
-
-  return {
-    sheetName,
-    columns,
-    rows,
-    totalRows: rows.length,
-    metadata,
-    layout,
-  };
-}
-
-const A3_METADATA_CELLS = {
-  companyCode: "D2",
-  companyName: "E2",
-  selection: "D3",
-  exportDate: "D5",
-  sectionTitle: "B7",
-};
 
 const DEFAULT_A3_SECTION_TITLE = "Trabajadores";
 
-function extractA3Metadata(worksheet) {
-  return {
-    companyCode: readCellDisplay(worksheet, A3_METADATA_CELLS.companyCode),
-    companyName: readCellDisplay(worksheet, A3_METADATA_CELLS.companyName),
-    selection: readCellDisplay(worksheet, A3_METADATA_CELLS.selection),
-    exportDate: readCellDisplay(worksheet, A3_METADATA_CELLS.exportDate),
-    sectionTitle:
-      readCellDisplay(worksheet, A3_METADATA_CELLS.sectionTitle) ??
-      DEFAULT_A3_SECTION_TITLE,
-  };
+let layoutDiscoveryReady = false;
+
+function ensureLayoutDiscovery() {
+  if (!layoutDiscoveryReady) {
+    importScripts("/workers/a3-layout-discovery.js");
+    layoutDiscoveryReady = true;
+  }
 }
 
 function normalizeCellValue(value) {
@@ -297,6 +116,7 @@ function readWorkbook(buffer, password) {
 
 async function parseBuffer(buffer, jobId, startTime, password) {
   ensureXlsx();
+  ensureLayoutDiscovery();
 
   emitProgress(jobId, startTime, {
     phase: "parsing",
@@ -328,23 +148,31 @@ async function parseBuffer(buffer, jobId, startTime, password) {
   await yieldToMain();
 
   const worksheet = workbook.Sheets[sheetName];
-  const ymantLayout = detectYmantLayout(worksheet);
+  const a3Layout = A3LayoutDiscovery.detectA3ExportLayout(worksheet);
 
-  if (ymantLayout) {
-    const ymantData = parseYmantWorksheet(worksheet, ymantLayout, sheetName);
+  if (a3Layout) {
+    const a3Data = A3LayoutDiscovery.parseA3ExportWorksheet(
+      worksheet,
+      a3Layout,
+      sheetName,
+      MAX_ROWS
+    );
 
     emitProgress(jobId, startTime, {
       phase: "complete",
-      message: `Listo — ${ymantData.totalRows.toLocaleString("es-ES")} trabajadores (formato YMANT 77)`,
+      message: `Listo — ${a3Data.totalRows.toLocaleString("es-ES")} filas (export A3)`,
       percent: 100,
-      processed: ymantData.totalRows,
-      total: ymantData.totalRows,
+      processed: a3Data.totalRows,
+      total: a3Data.totalRows,
     });
 
-    return ymantData;
+    return a3Data;
   }
 
-  const metadata = extractA3Metadata(worksheet);
+  const metadata = A3LayoutDiscovery.extractA3Metadata(worksheet);
+  if (!metadata.sectionTitle) {
+    metadata.sectionTitle = DEFAULT_A3_SECTION_TITLE;
+  }
   const rawRows = XLSX.utils.sheet_to_json(worksheet, {
     range: EXCEL_HEADER_ROW_INDEX,
     defval: null,

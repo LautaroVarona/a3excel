@@ -1,3 +1,4 @@
+import { isA3NativeExportLayout } from "./is-a3-native-export";
 import type { ParsedExcel } from "./excel-types";
 import { buildEditableExportName } from "./a3-export-filename";
 import {
@@ -76,19 +77,19 @@ export async function exportForA3Import(
     password?: string;
   }
 ): Promise<void> {
-  const hasYmantLayout = data.layout?.kind === "ymant";
+  const hasA3Layout = isA3NativeExportLayout(data.layout);
   const sourceBuffer = options?.sourceBuffer;
   const isXlsSource = options?.sourceFileName?.toLowerCase().endsWith(".xls") ?? false;
 
-  if (isXlsSource && !hasYmantLayout) {
+  if (isXlsSource && !hasA3Layout) {
     throw new Error(
-      "Este .XLS no tiene el formato interno de A3NOM (YMANT 77). " +
-        "Importá el archivo original exportado por A3 (≈245 KB), no una copia regrabada en Excel."
+      "Este .XLS no tiene la estructura interna de un export nativo de A3NOM. " +
+        "Importá el archivo original exportado por A3, no una copia regrabada en Excel."
     );
   }
 
-  if (isXlsSource || hasYmantLayout) {
-    if (!hasYmantLayout || !sourceBuffer) {
+  if (isXlsSource || hasA3Layout) {
+    if (!hasA3Layout || !sourceBuffer) {
       throw new Error(
         "No se puede exportar: falta el archivo original de A3 en memoria. " +
           "Volvé a importar el .XLS original."

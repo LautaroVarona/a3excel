@@ -1,7 +1,7 @@
 import * as XLSX from "xlsx";
 
 import { buildXlsReadPasswordStrategies } from "./a3-xls-read-strategies";
-import { detectYmantLayout, parseYmantWorksheet } from "./a3-ymant-format";
+import { detectA3ExportLayout, parseA3ExportWorksheet } from "./a3-workbook-layout";
 import { EXCEL_HEADER_ROW_INDEX } from "./excel-parse-constants";
 import { extractA3Metadata } from "./extract-a3-metadata";
 import type { ExcelRow, ParsedExcel } from "./excel-types";
@@ -73,9 +73,9 @@ export function parseWorkbookBuffer(
   }
 
   const worksheet = workbook.Sheets[sheetName];
-  const ymantLayout = detectYmantLayout(worksheet);
-  if (ymantLayout) {
-    return parseYmantWorksheet(worksheet, ymantLayout, sheetName, MAX_ROWS);
+  const a3Layout = detectA3ExportLayout(worksheet);
+  if (a3Layout) {
+    return parseA3ExportWorksheet(worksheet, a3Layout, sheetName, MAX_ROWS);
   }
 
   const metadata = extractA3Metadata(worksheet);

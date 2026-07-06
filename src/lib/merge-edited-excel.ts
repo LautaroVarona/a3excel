@@ -1,7 +1,7 @@
 import * as XLSX from "xlsx";
 
-import { detectYmantLayout } from "./a3-ymant-format";
-import type { A3YmantLayout, ExcelRow } from "./excel-types";
+import { detectA3ExportLayout } from "./a3-workbook-layout";
+import type { A3ExportLayout, ExcelRow } from "./excel-types";
 
 function normalizeCellValue(
   value: unknown
@@ -33,9 +33,9 @@ function readCellAt(
   return normalizeCellValue(cell.v);
 }
 
-export function parseEditedYmantRows(
+export function parseEditedA3Rows(
   buffer: ArrayBuffer,
-  layout: A3YmantLayout,
+  layout: A3ExportLayout,
   columns: string[]
 ): ExcelRow[] {
   const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
@@ -78,23 +78,26 @@ export function parseEditedYmantRows(
   return rows;
 }
 
+/** @deprecated Usar parseEditedA3Rows */
+export const parseEditedYmantRows = parseEditedA3Rows;
+
 export function resolveLayoutFromEditedFile(
   buffer: ArrayBuffer,
-  fallback?: A3YmantLayout
-): A3YmantLayout {
+  fallback?: A3ExportLayout
+): A3ExportLayout {
   const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
   const sheetName = workbook.SheetNames[0];
   if (!sheetName) {
     throw new Error("El archivo editado no contiene hojas.");
   }
 
-  const detected = detectYmantLayout(workbook.Sheets[sheetName]);
+  const detected = detectA3ExportLayout(workbook.Sheets[sheetName]);
   if (detected) return detected;
 
   if (fallback) return fallback;
 
   throw new Error(
-    "No se reconoce la estructura YMANT en el Excel editado. " +
+    "No se reconoce la estructura del export A3 en el Excel editado. " +
       "Usá el .xlsx descargado desde esta app."
   );
 }
