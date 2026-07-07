@@ -154,6 +154,13 @@ export function ExcelDataTable({
         const columns = Object.keys(layout.columnIndices);
         const rows = parseEditedA3Rows(buffer, layout, columns);
 
+        if (rows.length !== (data.originalRows ?? data.rows).length) {
+          throw new Error(
+            `El Excel editado tiene ${rows.length} filas de datos, pero el original tenía ` +
+              `${(data.originalRows ?? data.rows).length}. No agregues ni elimines filas — solo editá valores.`
+          );
+        }
+
         onDataUpdated({
           ...data,
           layout,
@@ -161,6 +168,7 @@ export function ExcelDataTable({
           rows,
           totalRows: rows.length,
           originalRows: data.originalRows ?? data.rows,
+          metadata: data.metadata,
         });
 
         setImportNotice(

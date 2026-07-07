@@ -192,6 +192,21 @@ function decryptXorData(
   return Buffer.concat(chunks);
 }
 
+function normalizePlainWorkbookForReencrypt(plainWorkbook: Buffer): Buffer {
+  const records = iterRecord(prepBlob(plainWorkbook));
+  const parts: Buffer[] = [];
+
+  for (const { header, num, size, record } of records) {
+    if (num === RECORD.FilePass) {
+      parts.push(Buffer.from([...header, ...Buffer.alloc(size)]));
+      continue;
+    }
+    parts.push(Buffer.from([...header, ...record]));
+  }
+
+  return Buffer.concat(parts);
+}
+
 function iterRecord(blob: CfbBlob): WorkbookRecord[] {
   const dataList: WorkbookRecord[] = [];
 
@@ -553,7 +568,8 @@ function buildEncryptedBlobFromPlain(
   password: string,
   encryption: EncryptionData
 ): Buffer {
-  const plainRecords = iterRecord(prepBlob(plainWorkbook));
+  const normalizedPlain = normalizePlainWorkbookForReencrypt(plainWorkbook);
+  const plainRecords = iterRecord(prepBlob(normalizedPlain));
   const plainBuf: number[] = [];
   const encryptedParts: Buffer[] = [];
 
@@ -571,7 +587,7 @@ function buildEncryptedBlobFromPlain(
         ...Array(size - 4).fill(-2)
       );
       encryptedParts.push(
-        Buffer.concat([Buffer.alloc(4), record.subarray(4)])
+        Buffer.concat([Buffer.alloc(4), Buffer.alloc(4), record.subarray(4)])
       );
     } else {
       plainBuf.push(...header, ...Array(size).fill(-1));
@@ -683,6 +699,14 @@ export function exportPreservingXlsBuffer(
     password,
     parsed.encryption
   );
+
+  if (workbookBlob.length !== encryptedWorkbook.length) {
+    throw new Error(
+      `El stream Workbook re-cifrado no coincide en tamaño con el original ` +
+        `(${encryptedWorkbook.length} vs ${workbookBlob.length} bytes).`
+    );
+  }
+
   CFB.utils.cfb_add(outputCfb, "Workbook", encryptedWorkbook);
   const written = CFB.write(outputCfb);
   return Buffer.isBuffer(written) ? written : Buffer.from(written);

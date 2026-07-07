@@ -176,7 +176,14 @@ export function collectChangedNumericPatches(
       if (nextValue === null) continue;
 
       const previousValue = normalizeNumeric(previous[column]);
-      if (previousValue !== null && previousValue === nextValue) continue;
+      if (
+        previousValue !== null &&
+        nextValue !== null &&
+        Math.abs(previousValue - nextValue) < 1e-9
+      ) {
+        continue;
+      }
+      if (previousValue === null && nextValue === null) continue;
 
       patches.push({ row: excelRow, col: colIndex, value: nextValue });
     }

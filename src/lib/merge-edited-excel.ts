@@ -92,7 +92,18 @@ export function resolveLayoutFromEditedFile(
   }
 
   const detected = detectA3ExportLayout(workbook.Sheets[sheetName]);
-  if (detected) return detected;
+  if (detected) {
+    if (!fallback) return detected;
+
+    return {
+      ...detected,
+      preambleCells: fallback.preambleCells ?? detected.preambleCells,
+      controlCodeColIndex:
+        fallback.controlCodeColIndex ?? detected.controlCodeColIndex,
+      controlCodeRowIndex:
+        fallback.controlCodeRowIndex ?? detected.controlCodeRowIndex,
+    };
+  }
 
   if (fallback) return fallback;
 
