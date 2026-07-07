@@ -11,28 +11,40 @@ export interface BiffCellPatch {
   value: number;
 }
 
-function encodeNumberRecord(row: number, col: number, value: number): Buffer {
+function encodeNumberRecord(
+  row: number,
+  col: number,
+  xfIndex: number,
+  value: number
+): Buffer {
   const body = Buffer.alloc(14);
   body.writeUInt16LE(row, 0);
   body.writeUInt16LE(col, 2);
-  body.writeDoubleLE(value, 4);
+  body.writeUInt16LE(xfIndex, 4);
+  body.writeDoubleLE(value, 6);
   const header = Buffer.alloc(4);
   header.writeUInt16LE(RECORD_NUMBER, 0);
-  header.writeUInt16LE(10, 2);
+  header.writeUInt16LE(14, 2);
   return Buffer.concat([header, body]);
 }
 
-function encodeRkRecord(row: number, col: number, value: number): Buffer | null {
+function encodeRkRecord(
+  row: number,
+  col: number,
+  xfIndex: number,
+  value: number
+): Buffer | null {
   const rk = numberToRk(value);
   if (rk === null) return null;
 
   const body = Buffer.alloc(10);
   body.writeUInt16LE(row, 0);
   body.writeUInt16LE(col, 2);
-  body.writeInt32LE(rk, 4);
+  body.writeUInt16LE(xfIndex, 4);
+  body.writeInt32LE(rk, 6);
   const header = Buffer.alloc(4);
   header.writeUInt16LE(RECORD_RK, 0);
-  header.writeUInt16LE(6, 2);
+  header.writeUInt16LE(10, 2);
   return Buffer.concat([header, body]);
 }
 
@@ -73,17 +85,19 @@ function patchRecordBody(
   const col = body.readUInt16LE(2);
   if (row !== patch.row || col !== patch.col) return null;
 
-  if (sid === RECORD_NUMBER && body.length >= 10) {
+  if (sid === RECORD_NUMBER && body.length >= 14) {
     const next = Buffer.from(body);
-    next.writeDoubleLE(patch.value, 4);
+    // NUMBER: row(2) col(2) xf(2) value(8)
+    next.writeDoubleLE(patch.value, 6);
     return next;
   }
 
-  if (sid === RECORD_RK && body.length >= 6) {
+  if (sid === RECORD_RK && body.length >= 10) {
     const rk = numberToRk(patch.value);
     if (rk === null) return null;
     const next = Buffer.from(body);
-    next.writeInt32LE(rk, 4);
+    // RK: row(2) col(2) xf(2) rk(4)
+    next.writeInt32LE(rk, 6);
     return next;
   }
 
@@ -140,8 +154,11 @@ export function patchBiffWorkbookStream(
           header.writeUInt16LE(patchedBody.length, 2);
           record = Buffer.concat([header, patchedBody]);
         } else if (sid === RECORD_RK) {
-          const replacement = encodeNumberRecord(row, col, patch.value);
-          if (replacement) record = replacement;
+          // Si no podemos codificar RK (ej: decimales), degradamos a NUMBER
+          // preservando el XF index original.
+          const xfIndex = body.length >= 6 ? body.readUInt16LE(4) : 0;
+          const replacement = encodeNumberRecord(row, col, xfIndex, patch.value);
+          record = replacement;
         }
       }
     }
